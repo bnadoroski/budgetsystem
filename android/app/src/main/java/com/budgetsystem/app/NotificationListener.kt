@@ -49,7 +49,7 @@ class NotificationListener : NotificationListenerService() {
                 val result = parser.parseNotification(packageName, "$title $text")
                 
                 if (result != null) {
-                    Log.d(TAG, "Expense detected: ${result.amount} from ${result.bank}")
+                    Log.d(TAG, "Expense detected: ${result.amount} from ${result.bank} - Category: ${result.category}")
                     sendExpenseToServer(result)
                 }
             }
@@ -76,6 +76,7 @@ class NotificationListener : NotificationListenerService() {
                     put("amount", expense.amount)
                     put("bank", expense.bank)
                     put("description", expense.description)
+                    put("category", expense.category)
                     put("timestamp", System.currentTimeMillis())
                 }
                 
@@ -104,5 +105,6 @@ class NotificationListener : NotificationListenerService() {
 data class ExpenseData(
     val amount: Double,
     val bank: String,
-    val description: String
+    val description: String,
+    val category: String
 )

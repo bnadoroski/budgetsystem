@@ -52,6 +52,9 @@ watch(() => authStore.user, async (newUser, oldUser) => {
 })
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
+  // Checar resultado do redirect do Google
+  await authStore.checkRedirectResult()
+
   if (authStore.user) {
     await budgetStore.loadBudgets(authStore.user.uid)
     await budgetStore.loadGroups(authStore.user.uid)
@@ -317,7 +320,8 @@ onMounted(async () => {
   min-height: 100vh;
   background-color: #f5f5f5;
   position: relative;
-  padding-bottom: 80px;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  padding-top: env(safe-area-inset-top);
 }
 
 .app-container::before {
@@ -410,7 +414,8 @@ onMounted(async () => {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 70px;
+  height: calc(70px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
   background-color: #e0e0e0;
   display: flex;
   justify-content: space-around;

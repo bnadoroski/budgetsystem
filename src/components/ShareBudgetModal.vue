@@ -183,7 +183,9 @@ const handleUnshare = async (budgetId: string) => {
     max-width: 500px;
     max-height: 90vh;
     overflow-y: auto;
+    overflow-x: hidden;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    box-sizing: border-box;
 }
 
 .modal-header {
@@ -222,6 +224,8 @@ const handleUnshare = async (budgetId: string) => {
 
 .modal-body {
     padding: 20px;
+    overflow-x: hidden;
+    box-sizing: border-box;
 }
 
 .description {
@@ -247,6 +251,7 @@ const handleUnshare = async (budgetId: string) => {
     display: flex;
     gap: 10px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .input-group input {

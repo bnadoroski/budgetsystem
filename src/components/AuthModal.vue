@@ -45,6 +45,11 @@
                         Continuar com Google
                     </button>
 
+                    <div class="google-note">
+                        <small>💡 Você será redirecionado para fazer login e depois voltará ao app
+                            automaticamente</small>
+                    </div>
+
                     <div class="toggle-mode">
                         <button type="button" @click="toggleMode" class="link-button">
                             {{ isLogin ? 'Não tem conta? Criar uma' : 'Já tem conta? Entrar' }}
@@ -98,13 +103,9 @@ const handleSubmit = async () => {
 }
 
 const handleGoogleSignIn = async () => {
-    loading.value = true
-    const result = await authStore.signInWithGoogle()
-    loading.value = false
-
-    if (result.success) {
-        close()
-    }
+    // Com redirect, não precisa de loading pois o app vai recarregar
+    await authStore.signInWithGoogle()
+    // O redirect vai acontecer automaticamente
 }
 
 const toggleMode = () => {
@@ -260,6 +261,18 @@ button {
 .btn-google:hover:not(:disabled) {
     background-color: #f8f8f8;
     border-color: #ccc;
+}
+
+.google-note {
+    margin-top: 8px;
+    text-align: center;
+}
+
+.google-note small {
+    color: #666;
+    font-size: 12px;
+    line-height: 1.4;
+    display: block;
 }
 
 .toggle-mode {

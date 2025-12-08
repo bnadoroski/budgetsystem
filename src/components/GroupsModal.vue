@@ -172,7 +172,9 @@ const getBudgetCount = (groupId: string) => {
     max-width: 500px;
     max-height: 90vh;
     overflow-y: auto;
+    overflow-x: hidden;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    box-sizing: border-box;
 }
 
 .modal-header {
@@ -211,6 +213,8 @@ const getBudgetCount = (groupId: string) => {
 
 .modal-body {
     padding: 20px;
+    overflow-x: hidden;
+    box-sizing: border-box;
 }
 
 .add-group-section {
@@ -228,6 +232,7 @@ const getBudgetCount = (groupId: string) => {
     display: flex;
     gap: 10px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .input-row input[type="text"] {

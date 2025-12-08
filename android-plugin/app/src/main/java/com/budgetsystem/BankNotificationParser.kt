@@ -20,6 +20,57 @@ class BankNotificationParser {
         "br.com.will.app" to "Will Bank"
     )
     
+    // Mapa de palavras-chave para categorias de budget
+    private val categoryKeywords = mapOf(
+        // Alimentação
+        "Alimentação" to listOf(
+            "mercado", "supermercado", "padaria", "açougue", "hortifruti",
+            "restaurante", "lanchonete", "fast food", "delivery", "ifood",
+            "rappi", "uber eats", "mcdonalds", "burguer", "pizza",
+            "café", "cafeteria", "bar", "padoca", "empório"
+        ),
+        // Transporte
+        "Transporte" to listOf(
+            "uber", "99", "taxi", "combustível", "gasolina", "etanol",
+            "posto", "shell", "ipiranga", "ale", "estacionamento",
+            "pedágio", "ônibus", "metrô", "bilhete único"
+        ),
+        // Lazer
+        "Lazer" to listOf(
+            "netflix", "spotify", "prime video", "disney", "hbo",
+            "cinema", "teatro", "show", "ingresso", "streaming",
+            "youtube premium", "deezer", "amazon music", "globoplay",
+            "apple music", "games", "steam", "playstation", "xbox"
+        ),
+        // Saúde
+        "Saúde" to listOf(
+            "farmácia", "drogaria", "remédio", "medicamento", "hospital",
+            "clínica", "médico", "dentista", "laboratório", "exame",
+            "plano de saúde", "unimed", "amil", "sulamerica"
+        ),
+        // Contas Fixas
+        "Contas Fixas" to listOf(
+            "energia", "luz", "água", "internet", "telefone", "celular",
+            "aluguel", "condomínio", "iptu", "seguro", "gás",
+            "vivo", "claro", "tim", "oi", "net", "sky"
+        ),
+        // Vestuário
+        "Vestuário" to listOf(
+            "renner", "c&a", "zara", "riachuelo", "marisa", "shein",
+            "nike", "adidas", "roupa", "calçado", "sapato", "tênis"
+        ),
+        // Educação
+        "Educação" to listOf(
+            "curso", "faculdade", "escola", "colégio", "livro", "livraria",
+            "apostila", "material escolar", "udemy", "coursera"
+        ),
+        // Casa
+        "Casa" to listOf(
+            "móveis", "decoração", "leroy", "tok&stok", "casas bahia",
+            "magazine luiza", "amazon", "mercado livre", "reforma"
+        )
+    )
+    
     // Padrões regex para detectar valores monetários
     private val moneyPatterns = listOf(
         // R$ 1.234,56 ou R$ 1234,56
@@ -52,14 +103,32 @@ class BankNotificationParser {
         // Obtém o nome do banco
         val bankName = bankNames[packageName] ?: "Banco Desconhecido"
         
-        // Extrai descrição (primeiras palavras ou palavra-chave principal)
+        // Extrai descrição
         val description = extractDescription(text)
+        
+        // Identifica a categoria baseada em palavras-chave
+        val category = detectCategory(lowerText)
         
         return ExpenseData(
             amount = amount,
             bank = bankName,
-            description = description
+            description = description,
+            category = category
         )
+    }
+    
+    private fun detectCategory(text: String): String {
+        // Procura por palavras-chave em cada categoria
+        for ((category, keywords) in categoryKeywords) {
+            for (keyword in keywords) {
+                if (text.contains(keyword.lowercase())) {
+                    return category
+                }
+            }
+        }
+        
+        // Se não encontrar nenhuma categoria, retorna "Outros"
+        return "Outros"
     }
     
     private fun extractAmount(text: String): Double? {

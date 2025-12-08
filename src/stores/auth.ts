@@ -7,7 +7,8 @@ import {
     onAuthStateChanged,
     type User,
     GoogleAuthProvider,
-    signInWithPopup
+    signInWithRedirect,
+    getRedirectResult
 } from 'firebase/auth'
 import { auth } from '@/config/firebase'
 
@@ -57,12 +58,26 @@ export const useAuthStore = defineStore('auth', () => {
         try {
             error.value = null
             const provider = new GoogleAuthProvider()
-            const userCredential = await signInWithPopup(auth, provider)
-            user.value = userCredential.user
+
+            // Usar redirect ao invés de popup (funciona melhor em mobile)
+            await signInWithRedirect(auth, provider)
             return { success: true }
         } catch (err: any) {
             error.value = getErrorMessage(err.code)
             return { success: false, error: error.value }
+        }
+    }
+
+    // Checar resultado do redirect (chamar ao inicializar o app)
+    const checkRedirectResult = async () => {
+        try {
+            const result = await getRedirectResult(auth)
+            if (result) {
+                user.value = result.user
+                return { success: true }
+            }
+        } catch (err: any) {
+            error.value = getErrorMessage(err.code)
         }
     }
 
@@ -105,6 +120,7 @@ export const useAuthStore = defineStore('auth', () => {
         signIn,
         signUp,
         signInWithGoogle,
+        checkRedirectResult,
         signOut
     }
 })
