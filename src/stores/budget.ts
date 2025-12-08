@@ -20,6 +20,9 @@ export const useBudgetStore = defineStore('budget', () => {
     const budgets = ref<Budget[]>([])
     const colors = ['#4CAF50', '#9C27B0', '#CDDC39', '#FF9800', '#2196F3', '#E91E63']
     const loading = ref(false)
+    const totalBudgetLimit = ref<number>(0)
+    const currency = ref<string>('BRL')
+    const darkMode = ref<boolean>(false)
     let unsubscribe: Unsubscribe | null = null
 
     // Referência da coleção de budgets
@@ -208,9 +211,35 @@ export const useBudgetStore = defineStore('budget', () => {
     // Inicializa (tenta carregar do localStorage primeiro)
     loadFromLocalStorage()
 
+    // Carrega limite total do localStorage
+    const savedLimit = localStorage.getItem('totalBudgetLimit')
+    if (savedLimit) {
+        totalBudgetLimit.value = parseFloat(savedLimit)
+    }
+
+    // Carrega currency e darkMode do localStorage
+    const savedCurrency = localStorage.getItem('currency')
+    if (savedCurrency) {
+        currency.value = savedCurrency
+    }
+
+    const savedDarkMode = localStorage.getItem('darkModeEnabled')
+    if (savedDarkMode) {
+        darkMode.value = savedDarkMode === 'true'
+    }
+
+    // Define ou atualiza o limite total de orçamento
+    const setTotalBudgetLimit = (limit: number) => {
+        totalBudgetLimit.value = limit
+        localStorage.setItem('totalBudgetLimit', limit.toString())
+    }
+
     return {
         budgets,
         loading,
+        totalBudgetLimit,
+        currency,
+        darkMode,
         loadBudgets,
         startBudgetsListener,
         stopBudgetsListener,
@@ -219,6 +248,7 @@ export const useBudgetStore = defineStore('budget', () => {
         addExpense,
         deleteBudget,
         percentage,
-        migrateBudgetsToFirestore
+        migrateBudgetsToFirestore,
+        setTotalBudgetLimit
     }
 })

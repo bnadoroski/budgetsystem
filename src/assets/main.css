@@ -11,6 +11,48 @@ body {
   background-color: #fafafa;
   margin: 0;
   padding: 0;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+body.dark-mode {
+  background-color: #1a202c;
+  color: #e2e8f0;
+}
+
+body.dark-mode .app-container {
+  background-color: #1a202c;
+}
+
+body.dark-mode .budget-label {
+  color: #e2e8f0;
+}
+
+body.dark-mode .budget-progress {
+  background-color: #2d3748;
+}
+
+body.dark-mode .bottom-nav {
+  background-color: #2d3748;
+}
+
+body.dark-mode .nav-button {
+  color: #e2e8f0;
+}
+
+body.dark-mode .nav-button:hover {
+  color: #fff;
+}
+
+body.dark-mode .empty-state-card {
+  background: rgba(45, 55, 72, 0.95);
+}
+
+body.dark-mode .empty-state h3 {
+  color: #cbd5e0;
+}
+
+body.dark-mode .empty-state p {
+  color: #a0aec0;
 }
 
 #app {

@@ -1,0 +1,726 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, watch } from 'vue'
+import { useBudgetStore } from '@/stores/budget'
+import type { Budget } from '@/types/budget'
+
+const props = defineProps<{
+    show: boolean
+}>()
+
+const emit = defineEmits<{
+    close: []
+}>()
+
+const budgetStore = useBudgetStore()
+const totalBudgetLimit = ref(budgetStore.totalBudgetLimit || 0)
+const editingBudget = ref<Budget | null>(null)
+const editName = ref('')
+const editTotal = ref(0)
+const editColor = ref('')
+const savedLimitFeedback = ref(false)
+
+// General Settings
+const currency = ref('BRL')
+const notificationsEnabled = ref(true)
+const darkModeEnabled = ref(false)
+
+const totalAllocated = computed(() => {
+    return budgetStore.budgets.reduce((sum, b) => sum + b.totalValue, 0)
+})
+
+const isOverLimit = computed(() => {
+    return totalBudgetLimit.value > 0 && totalAllocated.value > totalBudgetLimit.value
+})
+
+const remainingBudget = computed(() => {
+    return totalBudgetLimit.value > 0 ? totalBudgetLimit.value - totalAllocated.value : 0
+})
+
+const handleSaveLimit = () => {
+    budgetStore.setTotalBudgetLimit(totalBudgetLimit.value)
+    savedLimitFeedback.value = true
+    setTimeout(() => {
+        savedLimitFeedback.value = false
+    }, 2000)
+}
+
+const handleEditBudget = (budget: Budget) => {
+    editingBudget.value = budget
+    editName.value = budget.name
+    editTotal.value = budget.totalValue
+    editColor.value = budget.color
+}
+
+const handleSaveEdit = () => {
+    if (editingBudget.value) {
+        budgetStore.updateBudget(editingBudget.value.id, {
+            name: editName.value,
+            totalValue: editTotal.value,
+            color: editColor.value
+        })
+        editingBudget.value = null
+    }
+}
+
+const handleCancelEdit = () => {
+    editingBudget.value = null
+}
+
+const handleResetSpent = (budgetId: string) => {
+    budgetStore.updateBudget(budgetId, { spentValue: 0 })
+}
+
+const handleDeleteBudget = (budgetId: string) => {
+    if (confirm('Tem certeza que deseja excluir este budget?')) {
+        budgetStore.deleteBudget(budgetId)
+    }
+}
+
+const formatCurrency = (value: number) => {
+    const currencyCode = currency.value || 'BRL'
+    const locale = currencyCode === 'BRL' ? 'pt-BR' : currencyCode === 'EUR' ? 'de-DE' : 'en-US'
+    return new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency: currencyCode
+    }).format(value)
+}
+
+// Load settings from localStorage
+const loadSettings = () => {
+    const savedCurrency = localStorage.getItem('currency')
+    const savedNotifications = localStorage.getItem('notificationsEnabled')
+    const savedDarkMode = localStorage.getItem('darkModeEnabled')
+
+    if (savedCurrency) currency.value = savedCurrency
+    if (savedNotifications) notificationsEnabled.value = savedNotifications === 'true'
+    if (savedDarkMode) darkModeEnabled.value = savedDarkMode === 'true'
+}
+
+// Save settings to localStorage whenever they change
+watch(currency, (newValue) => {
+    localStorage.setItem('currency', newValue)
+    budgetStore.currency = newValue
+})
+
+watch(notificationsEnabled, (newValue) => {
+    localStorage.setItem('notificationsEnabled', newValue.toString())
+})
+
+watch(darkModeEnabled, (newValue) => {
+    localStorage.setItem('darkModeEnabled', newValue.toString())
+    budgetStore.darkMode = newValue
+    // Apply dark mode to document
+    if (newValue) {
+        document.body.classList.add('dark-mode')
+    } else {
+        document.body.classList.remove('dark-mode')
+    }
+})
+
+// Initialize settings on mount
+onMounted(() => {
+    loadSettings()
+    // Apply dark mode if enabled
+    if (darkModeEnabled.value) {
+        document.body.classList.add('dark-mode')
+    }
+})
+</script>
+
+<template>
+    <Teleport to="body">
+        <Transition name="modal">
+            <div v-if="show" class="modal-overlay" @click.self="emit('close')">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Configurações</h2>
+                        <button class="close-button" @click="emit('close')">×</button>
+                    </div>
+
+                    <div class="modal-body">
+                        <!-- Total Budget Limit Section -->
+                        <section class="settings-section">
+                            <h3>Limite de Orçamento Total</h3>
+                            <p class="section-description">
+                                Defina o valor total disponível (ex: seu salário) para controlar melhor seus gastos
+                            </p>
+
+                            <div class="input-group">
+                                <label>Valor Total Disponível</label>
+                                <input v-model.number="totalBudgetLimit" type="number" placeholder="Ex: 8000"
+                                    step="0.01" min="0" />
+                                <button class="save-button" @click="handleSaveLimit">Salvar Limite</button>
+                                <Transition name="fade">
+                                    <div v-if="savedLimitFeedback" class="success-feedback">
+                                        ✓ Limite salvo com sucesso!
+                                    </div>
+                                </Transition>
+                            </div>
+
+                            <div v-if="totalBudgetLimit > 0" class="budget-summary">
+                                <div class="summary-row">
+                                    <span>Total Disponível:</span>
+                                    <strong>{{ formatCurrency(totalBudgetLimit) }}</strong>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Total Alocado:</span>
+                                    <strong :class="{ 'text-danger': isOverLimit }">
+                                        {{ formatCurrency(totalAllocated) }}
+                                    </strong>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Restante:</span>
+                                    <strong
+                                        :class="{ 'text-success': remainingBudget > 0, 'text-danger': remainingBudget < 0 }">
+                                        {{ formatCurrency(remainingBudget) }}
+                                    </strong>
+                                </div>
+                            </div>
+
+                            <div v-if="isOverLimit" class="alert-warning">
+                                ⚠️ Atenção: O total dos seus budgets excede o limite definido!
+                            </div>
+                        </section>
+
+                        <!-- Budget Management Section -->
+                        <section class="settings-section">
+                            <h3>Gerenciar Budgets</h3>
+                            <p class="section-description">
+                                Edite, redefina ou exclua seus budgets existentes
+                            </p>
+
+                            <div v-if="budgetStore.budgets.length === 0" class="no-budgets">
+                                <p>Nenhum budget criado ainda</p>
+                            </div>
+
+                            <div v-else class="budget-items">
+                                <div v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-item">
+                                    <!-- Edit Mode -->
+                                    <div v-if="editingBudget?.id === budget.id" class="edit-mode">
+                                        <input v-model="editName" type="text" placeholder="Nome do budget"
+                                            class="edit-input" />
+                                        <input v-model.number="editTotal" type="number" placeholder="Valor total"
+                                            step="0.01" min="0" class="edit-input" />
+                                        <input v-model="editColor" type="color" class="edit-color" />
+                                        <div class="edit-actions">
+                                            <button class="btn-save" @click="handleSaveEdit">Salvar</button>
+                                            <button class="btn-cancel" @click="handleCancelEdit">Cancelar</button>
+                                        </div>
+                                    </div>
+
+                                    <!-- View Mode -->
+                                    <div v-else class="view-mode">
+                                        <div class="budget-info">
+                                            <div class="color-indicator" :style="{ backgroundColor: budget.color }">
+                                            </div>
+                                            <div class="budget-details">
+                                                <strong>{{ budget.name }}</strong>
+                                                <span class="budget-values">
+                                                    {{ formatCurrency(budget.spentValue) }} / {{
+                                                        formatCurrency(budget.totalValue) }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="budget-actions">
+                                            <button class="action-button" title="Editar"
+                                                @click="handleEditBudget(budget)">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <path
+                                                        d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7">
+                                                    </path>
+                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z">
+                                                    </path>
+                                                </svg>
+                                            </button>
+                                            <button class="action-button" title="Resetar gastos"
+                                                @click="handleResetSpent(budget.id)">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                                </svg>
+                                            </button>
+                                            <button class="action-button danger" title="Excluir"
+                                                @click="handleDeleteBudget(budget.id)">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                                    <path
+                                                        d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
+                                                    </path>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <!-- Additional Settings Section -->
+                        <section class="settings-section">
+                            <h3>Configurações Gerais</h3>
+                            <p class="section-description">
+                                Outras opções e preferências
+                            </p>
+
+                            <div class="settings-options">
+                                <div class="option-item">
+                                    <span>Moeda</span>
+                                    <select v-model="currency" class="option-select">
+                                        <option value="BRL">Real (R$)</option>
+                                        <option value="USD">Dólar ($)</option>
+                                        <option value="EUR">Euro (€)</option>
+                                    </select>
+                                </div>
+
+                                <div class="option-item">
+                                    <span>Notificações</span>
+                                    <label class="switch">
+                                        <input v-model="notificationsEnabled" type="checkbox" />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+
+                                <div class="option-item">
+                                    <span>Modo Escuro</span>
+                                    <label class="switch">
+                                        <input v-model="darkModeEnabled" type="checkbox" />
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+    </Teleport>
+</template>
+
+<style scoped>
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 24px;
+    color: #333;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    font-size: 32px;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+}
+
+.close-button:hover {
+    color: #333;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.settings-section {
+    margin-bottom: 30px;
+}
+
+.settings-section h3 {
+    font-size: 18px;
+    color: #333;
+    margin: 0 0 8px 0;
+}
+
+.section-description {
+    font-size: 14px;
+    color: #666;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.input-group label {
+    font-size: 14px;
+    color: #555;
+    font-weight: 500;
+}
+
+.input-group input {
+    padding: 12px;
+    font-size: 16px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    transition: border-color 0.3s;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #4a90e2;
+}
+
+.save-button {
+    padding: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.save-button:hover {
+    transform: scale(1.02);
+}
+
+.save-button:active {
+    transform: scale(0.98);
+}
+
+.success-feedback {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.3s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+}
+
+.budget-summary {
+    background: #2d3748;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 15px;
+    color: #e2e8f0;
+}
+
+.summary-row:not(:last-child) {
+    border-bottom: 1px solid #4a5568;
+}
+
+.summary-row strong {
+    color: #fff;
+}
+
+.text-danger {
+    color: #fc8181 !important;
+}
+
+.text-success {
+    color: #68d391 !important;
+}
+
+.alert-warning {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    color: #856404;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    text-align: center;
+}
+
+.no-budgets {
+    text-align: center;
+    padding: 30px;
+    color: #999;
+}
+
+.budget-items {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.budget-item {
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 16px;
+    background: #fafafa;
+}
+
+.view-mode {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.budget-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.color-indicator {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    flex-shrink: 0;
+}
+
+.budget-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.budget-details strong {
+    font-size: 16px;
+    color: #333;
+}
+
+.budget-values {
+    font-size: 13px;
+    color: #666;
+}
+
+.budget-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.action-button {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 8px;
+    cursor: pointer;
+    color: #666;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.action-button:hover {
+    background: #f5f5f5;
+    color: #333;
+}
+
+.action-button.danger:hover {
+    background: #fee;
+    color: #e53e3e;
+    border-color: #e53e3e;
+}
+
+.edit-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.edit-input {
+    padding: 10px;
+    font-size: 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+}
+
+.edit-input:focus {
+    outline: none;
+    border-color: #4a90e2;
+}
+
+.edit-color {
+    height: 40px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.edit-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-save,
+.btn-cancel {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.btn-save {
+    background: #38a169;
+    color: white;
+}
+
+.btn-cancel {
+    background: #e0e0e0;
+    color: #666;
+}
+
+.btn-save:hover,
+.btn-cancel:hover {
+    transform: scale(1.02);
+}
+
+.settings-options {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.option-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 8px;
+}
+
+.option-item span {
+    font-size: 15px;
+    color: #333;
+}
+
+.option-select {
+    padding: 6px 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: white;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 26px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.4s;
+    border-radius: 26px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.4s;
+    border-radius: 50%;
+}
+
+input:checked+.slider {
+    background-color: #667eea;
+}
+
+input:checked+.slider:before {
+    transform: translateX(22px);
+}
+
+/* Modal Transitions */
+.modal-enter-active,
+.modal-leave-active {
+    transition: opacity 0.3s;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+    opacity: 0;
+}
+
+.modal-enter-active .modal-content,
+.modal-leave-active .modal-content {
+    transition: transform 0.3s;
+}
+
+.modal-enter-from .modal-content,
+.modal-leave-to .modal-content {
+    transform: scale(0.9);
+}
+</style>

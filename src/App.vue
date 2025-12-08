@@ -5,11 +5,13 @@ import { useAuthStore } from '@/stores/auth'
 import BudgetBar from '@/components/BudgetBar.vue'
 import AddBudgetModal from '@/components/AddBudgetModal.vue'
 import AuthModal from '@/components/AuthModal.vue'
+import SettingsModal from '@/components/SettingsModal.vue'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
 const showAddModal = ref(false)
 const showAuthModal = ref(false)
+const showSettingsModal = ref(false)
 
 const handleAddBudget = (name: string, value: number, color: string) => {
   budgetStore.addBudget(name, value, color)
@@ -37,7 +39,6 @@ watch(() => authStore.user, async (newUser, oldUser) => {
     budgetStore.stopBudgetsListener()
   }
 })
-
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
   if (authStore.user) {
@@ -50,19 +51,21 @@ onMounted(async () => {
   <div class="app-container">
     <div class="budget-list">
       <div v-if="budgetStore.budgets.length === 0" class="empty-state">
-        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"></circle>
-          <path d="M12 6v6l4 2"></path>
-        </svg>
-        <h3>Nenhum budget criado</h3>
-        <p>Clique no botão + abaixo para criar seu primeiro budget e começar a acompanhar seus gastos</p>
+        <div class="empty-state-card">
+          <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="M12 6v6l4 2"></path>
+          </svg>
+          <h3>Nenhum budget criado</h3>
+          <p>Clique no botão + abaixo para criar seu primeiro budget e começar a acompanhar seus gastos</p>
+        </div>
       </div>
 
       <BudgetBar v-for="budget in budgetStore.budgets" :key="budget.id" :budget="budget" />
     </div>
 
     <div class="bottom-nav">
-      <button class="nav-button" title="Configurações">
+      <button class="nav-button" title="Configurações" @click="showSettingsModal = true">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 20 20">
           <g fill="none">
             <path fill="url(#SVGPftDHeRF)"
@@ -156,6 +159,7 @@ onMounted(async () => {
 
     <AddBudgetModal :show="showAddModal" @close="showAddModal = false" @submit="handleAddBudget" />
     <AuthModal :show="showAuthModal" @close="showAuthModal = false" />
+    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
   </div>
 </template>
 
@@ -165,12 +169,17 @@ onMounted(async () => {
   margin: 0 auto;
   min-height: 100vh;
   background-color: #fafafa;
+  background-image:
+    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4d4d4' fill-opacity='0.12' transform='scale(0.8)'%3E%3C!-- Moeda --%3E%3Ccircle cx='15' cy='15' r='8' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Ctext x='15' y='19' text-anchor='middle' font-size='10' font-weight='bold' fill='%23d4d4d4'%3E$%3C/text%3E%3C!-- Cartão de crédito --%3E%3Crect x='45' y='8' width='18' height='12' rx='2' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Cline x1='45' y1='11' x2='63' y2='11' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3Cline x1='48' y1='15' x2='52' y2='15' stroke='%23d4d4d4' stroke-width='1'/%3E%3C!-- Porquinho --%3E%3Cellipse cx='85' cy='18' rx='9' ry='7' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='82' cy='17' r='1' fill='%23d4d4d4'/%3E%3Crect x='83' y='13' width='4' height='3' rx='1' fill='none' stroke='%23d4d4d4' stroke-width='1'/%3E%3Cline x1='85' y1='24' x2='85' y2='28' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3Cline x1='90' y1='24' x2='90' y2='28' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3C!-- Gráfico --%3E%3Cpath d='M10 45 L15 40 L20 43 L25 38' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Ccircle cx='10' cy='45' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='15' cy='40' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='20' cy='43' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='25' cy='38' r='1.5' fill='%23d4d4d4'/%3E%3C!-- Calculadora --%3E%3Crect x='48' y='38' width='14' height='18' rx='2' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Crect x='50' y='40' width='10' height='4' fill='%23d4d4d4' fill-opacity='0.3'/%3E%3Ccircle cx='52' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='56' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='60' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='52' cy='52' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='56' cy='52' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='60' cy='52' r='1' fill='%23d4d4d4'/%3E%3C!-- Cifrão --%3E%3Cpath d='M85 42 Q82 42 82 45 Q82 47 85 47 Q88 47 88 50 Q88 52 85 52' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Cline x1='85' y1='40' x2='85' y2='54' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3C!-- Carteira --%3E%3Cpath d='M10 70 L25 70 L25 82 L10 82 Z' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Cline x1='10' y1='73' x2='25' y2='73' stroke='%23d4d4d4' stroke-width='1.2'/%3E%3Crect x='15' y='75' width='8' height='5' rx='1' fill='none' stroke='%23d4d4d4' stroke-width='1'/%3E%3C!-- Tag de preço --%3E%3Cpath d='M45 70 L55 70 L60 76 L55 82 L45 82 Z' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='49' cy='76' r='1.5' fill='%23d4d4d4'/%3E%3Ctext x='54' y='79' font-size='6' fill='%23d4d4d4'%3E$%3C/text%3E%3C!-- Saco de dinheiro --%3E%3Cpath d='M85 80 Q82 85 85 88 Q88 85 85 80' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='85' cy='92' r='6' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ctext x='85' y='95' text-anchor='middle' font-size='7' font-weight='bold' fill='%23d4d4d4'%3E$%3C/text%3E%3C/g%3E%3C/svg%3E");
+  background-size: 200px 200px;
   position: relative;
   padding-bottom: 80px;
 }
 
 .budget-list {
   padding: 20px;
+  position: relative;
+  z-index: 1;
 }
 
 .empty-state {
@@ -181,6 +190,16 @@ onMounted(async () => {
   text-align: center;
   padding: 60px 30px;
   color: #999;
+}
+
+.empty-state-card {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  padding: 40px 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .empty-state svg {
