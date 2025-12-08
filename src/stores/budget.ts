@@ -407,7 +407,11 @@ export const useBudgetStore = defineStore('budget', () => {
                 throw new Error('Usuário não encontrado')
             }
 
-            const targetUserId = usersSnapshot.docs[0].id
+            const targetUserId = usersSnapshot.docs[0]?.id
+            if (!targetUserId) {
+                throw new Error('Erro ao obter ID do usuário')
+            }
+
             const budget = budgets.value.find(b => b.id === budgetId)
 
             if (!budget) return

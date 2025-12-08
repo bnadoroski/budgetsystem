@@ -15,6 +15,7 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  // @ts-ignore - Vitest config
   test: {
     globals: true,
     environment: 'happy-dom',
