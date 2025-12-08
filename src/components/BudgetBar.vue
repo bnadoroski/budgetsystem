@@ -76,6 +76,11 @@ const darkenColor = (color: string) => {
     color: #333;
     margin-bottom: 8px;
     font-weight: 500;
+    background: rgba(255, 255, 255, 0.85);
+    padding: 6px 12px;
+    border-radius: 8px;
+    display: inline-block;
+    backdrop-filter: blur(8px);
 }
 
 .budget-progress {

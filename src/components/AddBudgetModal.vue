@@ -16,6 +16,15 @@
                                 required placeholder="0.00" />
                         </div>
                         <div class="form-group">
+                            <label for="budget-group">Grupo (opcional)</label>
+                            <select id="budget-group" v-model="selectedGroupId">
+                                <option value="">Sem grupo</option>
+                                <option v-for="group in budgetStore.groups" :key="group.id" :value="group.id">
+                                    {{ group.name }}
+                                </option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="budget-color">Cor</label>
                             <div class="color-picker">
                                 <div v-for="color in availableColors" :key="color" class="color-option"
@@ -44,6 +53,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useBudgetStore } from '@/stores/budget'
 
 const props = defineProps<{
     show: boolean
@@ -51,12 +61,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     close: []
-    submit: [name: string, value: number, color: string]
+    submit: [name: string, value: number, color: string, groupId?: string]
 }>()
 
+const budgetStore = useBudgetStore()
 const budgetName = ref('')
 const budgetValue = ref<number>(0)
 const budgetColor = ref('#4CAF50')
+const selectedGroupId = ref<string>('')
 
 const availableColors = [
     '#4CAF50', // Verde
@@ -80,12 +92,13 @@ watch(() => props.show, (newVal) => {
         budgetName.value = ''
         budgetValue.value = 0
         budgetColor.value = '#4CAF50'
+        selectedGroupId.value = ''
     }
 })
 
 const handleSubmit = () => {
     if (budgetName.value && budgetValue.value > 0) {
-        emit('submit', budgetName.value, budgetValue.value, budgetColor.value)
+        emit('submit', budgetName.value, budgetValue.value, budgetColor.value, selectedGroupId.value || undefined)
         close()
     }
 }
@@ -136,7 +149,8 @@ label {
     font-size: 14px;
 }
 
-input {
+input,
+select {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #ddd;

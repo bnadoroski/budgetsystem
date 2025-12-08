@@ -1,21 +1,32 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
 import BudgetBar from '@/components/BudgetBar.vue'
+import BudgetGroup from '@/components/BudgetGroup.vue'
 import AddBudgetModal from '@/components/AddBudgetModal.vue'
 import AuthModal from '@/components/AuthModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
+import GroupsModal from '@/components/GroupsModal.vue'
+import ShareBudgetModal from '@/components/ShareBudgetModal.vue'
+import HistoryModal from '@/components/HistoryModal.vue'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
 const showAddModal = ref(false)
 const showAuthModal = ref(false)
 const showSettingsModal = ref(false)
+const showGroupsModal = ref(false)
+const showShareModal = ref(false)
+const showHistoryModal = ref(false)
 
-const handleAddBudget = (name: string, value: number, color: string) => {
-  budgetStore.addBudget(name, value, color)
+const handleAddBudget = (name: string, value: number, color: string, groupId?: string) => {
+  budgetStore.addBudget(name, value, color, groupId)
 }
+
+const ungroupedBudgets = computed(() => {
+  return budgetStore.budgets.filter(b => !b.groupId)
+})
 
 const handleProfileClick = () => {
   if (authStore.isAuthenticated) {
@@ -43,12 +54,61 @@ watch(() => authStore.user, async (newUser, oldUser) => {
 onMounted(async () => {
   if (authStore.user) {
     await budgetStore.loadBudgets(authStore.user.uid)
+    await budgetStore.loadGroups(authStore.user.uid)
+    await budgetStore.startSharedBudgetsListener(authStore.user.uid)
   }
 })
 </script>
 
 <template>
   <div class="app-container">
+    <!-- History Button -->
+    <button class="history-button" @click="showHistoryModal = true" title="Ver histórico">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
+        <g fill="none">
+          <path fill="url(#SVGVSdJzcMZ)"
+            d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
+          <path fill="url(#SVGD1CMpKTK)"
+            d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
+          <g filter="url(#SVGJXIjpdIN)">
+            <path fill="url(#SVGL6uCze5T)"
+              d="M15.5 26a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5m11-2.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5M18 31.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5" />
+          </g>
+          <path fill="url(#SVGHrxJFdSI)" d="M12.25 6A6.25 6.25 0 0 0 6 12.25V16h36v-3.75A6.25 6.25 0 0 0 35.75 6z" />
+          <defs>
+            <linearGradient id="SVGVSdJzcMZ" x1="30.5" x2="20.973" y1="45.316" y2="16.104"
+              gradientUnits="userSpaceOnUse">
+              <stop stop-color="#b3e0ff" />
+              <stop offset="1" stop-color="#b3e0ff" />
+            </linearGradient>
+            <linearGradient id="SVGD1CMpKTK" x1="27.857" x2="32.563" y1="26.046" y2="48.229"
+              gradientUnits="userSpaceOnUse">
+              <stop stop-color="#dcf8ff" stop-opacity="0" />
+              <stop offset="1" stop-color="#ff6ce8" stop-opacity="0.7" />
+            </linearGradient>
+            <linearGradient id="SVGL6uCze5T" x1="22" x2="26.043" y1="19.5" y2="45.493" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#0078d4" />
+              <stop offset="1" stop-color="#0067bf" />
+            </linearGradient>
+            <linearGradient id="SVGHrxJFdSI" x1="6" x2="36.743" y1="6" y2="-3.926" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#0094f0" />
+              <stop offset="1" stop-color="#2764e7" />
+            </linearGradient>
+            <filter id="SVGJXIjpdIN" width="24.667" height="15.667" x="11.667" y="20.333"
+              color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+              <feFlood flood-opacity="0" result="BackgroundImageFix" />
+              <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
+              <feOffset dy=".667" />
+              <feGaussianBlur stdDeviation=".667" />
+              <feColorMatrix values="0 0 0 0 0.1242 0 0 0 0 0.323337 0 0 0 0 0.7958 0 0 0 0.32 0" />
+              <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_378174_9807" />
+              <feBlend in="SourceGraphic" in2="effect1_dropShadow_378174_9807" result="shape" />
+            </filter>
+          </defs>
+        </g>
+      </svg>
+    </button>
+
     <div class="budget-list">
       <div v-if="budgetStore.budgets.length === 0" class="empty-state">
         <div class="empty-state-card">
@@ -61,10 +121,36 @@ onMounted(async () => {
         </div>
       </div>
 
-      <BudgetBar v-for="budget in budgetStore.budgets" :key="budget.id" :budget="budget" />
+      <!-- Groups -->
+      <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" />
+
+      <!-- Ungrouped Budgets -->
+      <BudgetBar v-for="budget in ungroupedBudgets" :key="budget.id" :budget="budget" />
     </div>
 
     <div class="bottom-nav">
+      <button class="nav-button" title="Grupos" @click="showGroupsModal = true">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
+          <g fill="none">
+            <path fill="url(#SVGlHpytcfC)"
+              d="M11 28h14.5a2.5 2.5 0 0 0 2.5-2.5v-2a2.5 2.5 0 0 0-2.5-2.5H11l-1 3.5zm0-9h14.5a2.5 2.5 0 0 0 2.5-2.5v-1a2.5 2.5 0 0 0-2.5-2.5H11l-1 3zm0-8h14.5A2.5 2.5 0 0 0 28 8.5v-2A2.5 2.5 0 0 0 25.5 4H11l-1 3.5z" />
+            <path fill="url(#SVG5RI0JguJ)"
+              d="M11 13v6H6.5A2.5 2.5 0 0 1 4 16.5v-1A2.5 2.5 0 0 1 6.5 13zm0-9v7H6.5A2.5 2.5 0 0 1 4 8.5v-2A2.5 2.5 0 0 1 6.5 4zm0 17v7H6.5A2.5 2.5 0 0 1 4 25.5v-2A2.5 2.5 0 0 1 6.5 21z" />
+            <defs>
+              <linearGradient id="SVGlHpytcfC" x1="7.3" x2="27.919" y1=".571" y2="26.64" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#36dff1" />
+                <stop offset="1" stop-color="#0094f0" />
+              </linearGradient>
+              <linearGradient id="SVG5RI0JguJ" x1="5.665" x2="16.071" y1="7.19" y2="12.037"
+                gradientUnits="userSpaceOnUse">
+                <stop offset=".125" stop-color="#9c6cfe" />
+                <stop offset="1" stop-color="#7a41dc" />
+              </linearGradient>
+            </defs>
+          </g>
+        </svg>
+      </button>
+
       <button class="nav-button" title="Configurações" @click="showSettingsModal = true">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 20 20">
           <g fill="none">
@@ -123,6 +209,64 @@ onMounted(async () => {
         </svg>
       </button>
 
+      <button class="nav-button" title="Compartilhar" @click="showShareModal = true">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
+          <g fill="none">
+            <path fill="url(#SVGTCIsBbRM)" fill-rule="evenodd"
+              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
+              clip-rule="evenodd" />
+            <path fill="url(#SVGpzlRP9hG)" fill-rule="evenodd"
+              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
+              clip-rule="evenodd" />
+            <path fill="url(#SVG5sIYteLx)" fill-rule="evenodd"
+              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
+              clip-rule="evenodd" />
+            <path fill="url(#SVGudKsbcgX)" fill-rule="evenodd"
+              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
+              clip-rule="evenodd" />
+            <path fill="url(#SVGB8kyadpq)" d="M29 25a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
+            <path fill="url(#SVGlrkOvePN)" d="M13 25a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
+            <path fill="url(#SVGb6Cejerf)" d="M21 7a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
+            <defs>
+              <radialGradient id="SVGpzlRP9hG" cx="0" cy="0" r="1"
+                gradientTransform="matrix(0 7.60577 -11.4087 0 16 6.394)" gradientUnits="userSpaceOnUse">
+                <stop offset=".695" stop-color="#70777d" />
+                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="SVG5sIYteLx" cx="0" cy="0" r="1"
+                gradientTransform="rotate(-90.216 16.302 8.464)scale(7.47121 11.2068)" gradientUnits="userSpaceOnUse">
+                <stop offset=".549" stop-color="#70777d" />
+                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="SVGudKsbcgX" cx="0" cy="0" r="1"
+                gradientTransform="rotate(-89.564 24.515 .257)scale(7.38483 11.0773)" gradientUnits="userSpaceOnUse">
+                <stop offset=".549" stop-color="#70777d" />
+                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
+              </radialGradient>
+              <radialGradient id="SVGB8kyadpq" cx="0" cy="0" r="1"
+                gradientTransform="rotate(53.616 -2.282 17.25)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
+                <stop offset=".529" stop-color="#7b7bff" />
+                <stop offset="1" stop-color="#4a43cb" />
+              </radialGradient>
+              <radialGradient id="SVGlrkOvePN" cx="0" cy="0" r="1"
+                gradientTransform="rotate(53.616 -10.282 1.417)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
+                <stop offset=".529" stop-color="#1ec8b0" />
+                <stop offset="1" stop-color="#1a7f7c" />
+              </radialGradient>
+              <radialGradient id="SVGb6Cejerf" cx="0" cy="0" r="1"
+                gradientTransform="rotate(53.616 11.529 .333)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
+                <stop offset=".529" stop-color="#0fafff" />
+                <stop offset="1" stop-color="#0067bf" />
+              </radialGradient>
+              <linearGradient id="SVGTCIsBbRM" x1="7" x2="10.055" y1="10" y2="23.094" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#b9c0c7" />
+                <stop offset="1" stop-color="#70777d" />
+              </linearGradient>
+            </defs>
+          </g>
+        </svg>
+      </button>
+
       <button class="nav-button" title="Perfil" @click="handleProfileClick">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
           <g fill="none">
@@ -160,6 +304,9 @@ onMounted(async () => {
     <AddBudgetModal :show="showAddModal" @close="showAddModal = false" @submit="handleAddBudget" />
     <AuthModal :show="showAuthModal" @close="showAuthModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
+    <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
+    <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
+    <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
   </div>
 </template>
 
@@ -168,12 +315,24 @@ onMounted(async () => {
   max-width: 600px;
   margin: 0 auto;
   min-height: 100vh;
-  background-color: #fafafa;
-  background-image:
-    url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d4d4d4' fill-opacity='0.12' transform='scale(0.8)'%3E%3C!-- Moeda --%3E%3Ccircle cx='15' cy='15' r='8' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Ctext x='15' y='19' text-anchor='middle' font-size='10' font-weight='bold' fill='%23d4d4d4'%3E$%3C/text%3E%3C!-- Cartão de crédito --%3E%3Crect x='45' y='8' width='18' height='12' rx='2' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Cline x1='45' y1='11' x2='63' y2='11' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3Cline x1='48' y1='15' x2='52' y2='15' stroke='%23d4d4d4' stroke-width='1'/%3E%3C!-- Porquinho --%3E%3Cellipse cx='85' cy='18' rx='9' ry='7' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='82' cy='17' r='1' fill='%23d4d4d4'/%3E%3Crect x='83' y='13' width='4' height='3' rx='1' fill='none' stroke='%23d4d4d4' stroke-width='1'/%3E%3Cline x1='85' y1='24' x2='85' y2='28' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3Cline x1='90' y1='24' x2='90' y2='28' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3C!-- Gráfico --%3E%3Cpath d='M10 45 L15 40 L20 43 L25 38' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Ccircle cx='10' cy='45' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='15' cy='40' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='20' cy='43' r='1.5' fill='%23d4d4d4'/%3E%3Ccircle cx='25' cy='38' r='1.5' fill='%23d4d4d4'/%3E%3C!-- Calculadora --%3E%3Crect x='48' y='38' width='14' height='18' rx='2' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Crect x='50' y='40' width='10' height='4' fill='%23d4d4d4' fill-opacity='0.3'/%3E%3Ccircle cx='52' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='56' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='60' cy='48' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='52' cy='52' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='56' cy='52' r='1' fill='%23d4d4d4'/%3E%3Ccircle cx='60' cy='52' r='1' fill='%23d4d4d4'/%3E%3C!-- Cifrão --%3E%3Cpath d='M85 42 Q82 42 82 45 Q82 47 85 47 Q88 47 88 50 Q88 52 85 52' stroke='%23d4d4d4' stroke-width='1.5' fill='none'/%3E%3Cline x1='85' y1='40' x2='85' y2='54' stroke='%23d4d4d4' stroke-width='1.5'/%3E%3C!-- Carteira --%3E%3Cpath d='M10 70 L25 70 L25 82 L10 82 Z' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Cline x1='10' y1='73' x2='25' y2='73' stroke='%23d4d4d4' stroke-width='1.2'/%3E%3Crect x='15' y='75' width='8' height='5' rx='1' fill='none' stroke='%23d4d4d4' stroke-width='1'/%3E%3C!-- Tag de preço --%3E%3Cpath d='M45 70 L55 70 L60 76 L55 82 L45 82 Z' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='49' cy='76' r='1.5' fill='%23d4d4d4'/%3E%3Ctext x='54' y='79' font-size='6' fill='%23d4d4d4'%3E$%3C/text%3E%3C!-- Saco de dinheiro --%3E%3Cpath d='M85 80 Q82 85 85 88 Q88 85 85 80' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ccircle cx='85' cy='92' r='6' stroke='%23d4d4d4' stroke-width='1.2' fill='none'/%3E%3Ctext x='85' y='95' text-anchor='middle' font-size='7' font-weight='bold' fill='%23d4d4d4'%3E$%3C/text%3E%3C/g%3E%3C/svg%3E");
-  background-size: 200px 200px;
+  background-color: #f5f5f5;
   position: relative;
   padding-bottom: 80px;
+}
+
+.app-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url('/fundo.png');
+  background-size: 400px 400px;
+  background-repeat: repeat;
+  opacity: 0.5;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .budget-list {
@@ -217,6 +376,33 @@ onMounted(async () => {
   font-size: 14px;
   line-height: 1.6;
   max-width: 300px;
+}
+
+.history-button {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: white;
+  border: none;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.history-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.history-button:active {
+  transform: scale(0.95);
 }
 
 .bottom-nav {
@@ -274,6 +460,16 @@ onMounted(async () => {
 .add-button:hover {
   background-color: transparent;
   transform: scale(1.1);
+}
+
+/* Dark mode overrides */
+body.dark-mode .history-button {
+  background: #2d3748;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .history-button:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 @media (min-width: 601px) {

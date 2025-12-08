@@ -13,6 +13,7 @@ const emit = defineEmits<{
 
 const budgetStore = useBudgetStore()
 const totalBudgetLimit = ref(budgetStore.totalBudgetLimit || 0)
+const resetDay = ref(budgetStore.resetDay || 5)
 const editingBudget = ref<Budget | null>(null)
 const editName = ref('')
 const editTotal = ref(0)
@@ -38,6 +39,7 @@ const remainingBudget = computed(() => {
 
 const handleSaveLimit = () => {
     budgetStore.setTotalBudgetLimit(totalBudgetLimit.value)
+    budgetStore.setResetDay(resetDay.value)
     savedLimitFeedback.value = true
     setTimeout(() => {
         savedLimitFeedback.value = false
@@ -149,10 +151,15 @@ onMounted(() => {
                                 <label>Valor Total Disponível</label>
                                 <input v-model.number="totalBudgetLimit" type="number" placeholder="Ex: 8000"
                                     step="0.01" min="0" />
-                                <button class="save-button" @click="handleSaveLimit">Salvar Limite</button>
+                                <label style="margin-top: 16px;">Dia de Reset Mensal</label>
+                                <input v-model.number="resetDay" type="number" placeholder="Dia do mês (1-28)" min="1"
+                                    max="28" />
+                                <p class="reset-info">💡 Os gastos de todos os budgets serão zerados todo dia {{
+                                    resetDay }}</p>
+                                <button class="save-button" @click="handleSaveLimit">Salvar Configurações</button>
                                 <Transition name="fade">
                                     <div v-if="savedLimitFeedback" class="success-feedback">
-                                        ✓ Limite salvo com sucesso!
+                                        ✓ Configurações salvas com sucesso!
                                     </div>
                                 </Transition>
                             </div>
@@ -646,6 +653,15 @@ onMounted(() => {
 .option-item span {
     font-size: 15px;
     color: #333;
+}
+
+.reset-info {
+    font-size: 13px;
+    color: #666;
+    margin: 8px 0 0 0;
+    padding: 8px;
+    background: #f0f7ff;
+    border-radius: 6px;
 }
 
 .option-select {
