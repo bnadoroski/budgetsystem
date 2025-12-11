@@ -19,10 +19,21 @@ import {
 } from 'firebase/firestore'
 import { useAuthStore } from './auth'
 
+interface PendingExpense {
+    id: string
+    amount: number
+    bank: string
+    description: string
+    category: string
+    timestamp: number
+    approved?: boolean
+}
+
 export const useBudgetStore = defineStore('budget', () => {
     const budgets = ref<Budget[]>([])
     const groups = ref<BudgetGroup[]>([])
     const history = ref<BudgetHistory[]>([])
+    const pendingExpenses = ref<PendingExpense[]>([])
     const colors = ['#4CAF50', '#9C27B0', '#CDDC39', '#FF9800', '#2196F3', '#E91E63']
     const loading = ref(false)
     const totalBudgetLimit = ref<number>(0)
@@ -593,10 +604,56 @@ export const useBudgetStore = defineStore('budget', () => {
 
     initializeMonthlyCheck()
 
+    // ===== PENDING EXPENSES FROM NOTIFICATIONS =====
+
+    const addPendingExpense = (expense: Omit<PendingExpense, 'id'>) => {
+        const newExpense: PendingExpense = {
+            id: Date.now().toString(),
+            ...expense
+        }
+        pendingExpenses.value.unshift(newExpense)
+        
+        // Save to localStorage as backup
+        localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+        
+        console.log('✅ Pending expense added:', newExpense)
+    }
+
+    const approvePendingExpense = async (expenseId: string, budgetId: string) => {
+        const expense = pendingExpenses.value.find(e => e.id === expenseId)
+        if (!expense) return
+
+        await addExpense(budgetId, expense.amount)
+        
+        expense.approved = true
+        
+        // Remove from pending after a short delay
+        setTimeout(() => {
+            pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
+            localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+        }, 1000)
+    }
+
+    const rejectPendingExpense = (expenseId: string) => {
+        pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
+        localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+    }
+
+    // Load pending expenses from localStorage
+    const loadPendingExpenses = () => {
+        const stored = localStorage.getItem('pendingExpenses')
+        if (stored) {
+            pendingExpenses.value = JSON.parse(stored)
+        }
+    }
+
+    loadPendingExpenses()
+
     return {
         budgets,
         groups,
         history,
+        pendingExpenses,
         loading,
         totalBudgetLimit,
         currency,
@@ -627,6 +684,10 @@ export const useBudgetStore = defineStore('budget', () => {
         loadHistory,
         setResetDay,
         resetMonthlyBudgets,
-        checkAndResetBudgets
+        checkAndResetBudgets,
+        // Pending Expenses
+        addPendingExpense,
+        approvePendingExpense,
+        rejectPendingExpense
     }
 })
