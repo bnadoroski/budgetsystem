@@ -15,8 +15,16 @@ app.use(router)
 app.mount('#app')
 
 // Setup WebSocket listener for expense notifications (only in dev mode with HMR)
+interface ExpenseNotification {
+  amount: number
+  bank: string
+  description: string
+  category: string
+  timestamp: number
+}
+
 if (import.meta.hot) {
-  import.meta.hot.on('expense-notification', (data: any) => {
+  import.meta.hot.on('expense-notification', (data: ExpenseNotification) => {
     console.log('🔔 Expense notification received:', data)
     
     // Import budget store and add pending expense

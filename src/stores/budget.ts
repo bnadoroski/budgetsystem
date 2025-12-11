@@ -608,7 +608,7 @@ export const useBudgetStore = defineStore('budget', () => {
 
     const addPendingExpense = (expense: Omit<PendingExpense, 'id'>) => {
         const newExpense: PendingExpense = {
-            id: Date.now().toString(),
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             ...expense
         }
         pendingExpenses.value.unshift(newExpense)
@@ -641,9 +641,16 @@ export const useBudgetStore = defineStore('budget', () => {
 
     // Load pending expenses from localStorage
     const loadPendingExpenses = () => {
-        const stored = localStorage.getItem('pendingExpenses')
-        if (stored) {
-            pendingExpenses.value = JSON.parse(stored)
+        try {
+            const stored = localStorage.getItem('pendingExpenses')
+            if (stored) {
+                pendingExpenses.value = JSON.parse(stored)
+            }
+        } catch (error) {
+            console.error('Error loading pending expenses from localStorage:', error)
+            // Clear corrupted data
+            localStorage.removeItem('pendingExpenses')
+            pendingExpenses.value = []
         }
     }
 

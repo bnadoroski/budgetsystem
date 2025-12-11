@@ -165,9 +165,10 @@ const testConnection = async () => {
       connectionStatus.value = 'disconnected'
       addLog(`Connection failed: ${response.status}`, 'error')
     }
-  } catch (error: any) {
+  } catch (error) {
     connectionStatus.value = 'disconnected'
-    addLog(`Connection error: ${error.message}`, 'error')
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    addLog(`Connection error: ${errorMessage}`, 'error')
   }
 }
 
@@ -207,8 +208,9 @@ const sendTestNotification = async () => {
     } else {
       addLog(`Failed to send: ${response.status}`, 'error')
     }
-  } catch (error: any) {
-    addLog(`Error: ${error.message}`, 'error')
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    addLog(`Error: ${errorMessage}`, 'error')
   }
 }
 
