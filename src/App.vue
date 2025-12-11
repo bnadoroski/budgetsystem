@@ -10,6 +10,7 @@ import SettingsModal from '@/components/SettingsModal.vue'
 import GroupsModal from '@/components/GroupsModal.vue'
 import ShareBudgetModal from '@/components/ShareBudgetModal.vue'
 import HistoryModal from '@/components/HistoryModal.vue'
+import DebugPanel from '@/components/DebugPanel.vue'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
@@ -19,6 +20,7 @@ const showSettingsModal = ref(false)
 const showGroupsModal = ref(false)
 const showShareModal = ref(false)
 const showHistoryModal = ref(false)
+const showDebugPanel = ref(false)
 
 const handleAddBudget = (name: string, value: number, color: string, groupId?: string) => {
   budgetStore.addBudget(name, value, color, groupId)
@@ -65,6 +67,11 @@ onMounted(async () => {
 
 <template>
   <div class="app-container">
+    <!-- Debug Button (top left) -->
+    <button class="debug-button" @click="showDebugPanel = true" title="Debug Panel">
+      🐛
+    </button>
+
     <!-- History Button -->
     <button class="history-button" @click="showHistoryModal = true" title="Ver histórico">
       <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
@@ -310,6 +317,7 @@ onMounted(async () => {
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
     <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
+    <DebugPanel :show="showDebugPanel" @close="showDebugPanel = false" />
   </div>
 </template>
 
@@ -382,6 +390,35 @@ onMounted(async () => {
   max-width: 300px;
 }
 
+.debug-button {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: white;
+  border: none;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  z-index: 10;
+  -webkit-tap-highlight-color: transparent;
+  font-size: 24px;
+}
+
+.debug-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.debug-button:active {
+  transform: scale(0.95);
+}
+
 .history-button {
   position: absolute;
   top: 20px;
@@ -398,6 +435,7 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: all 0.2s;
   z-index: 10;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .history-button:hover {
@@ -437,6 +475,7 @@ onMounted(async () => {
   justify-content: center;
   transition: all 0.2s;
   position: relative;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nav-button:hover {

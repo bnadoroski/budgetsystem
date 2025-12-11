@@ -69,6 +69,7 @@ const darkenColor = (color: string) => {
     margin: 16px 0;
     cursor: pointer;
     user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .budget-label {

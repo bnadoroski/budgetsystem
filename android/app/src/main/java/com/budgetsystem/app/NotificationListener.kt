@@ -60,16 +60,36 @@ class NotificationListener : NotificationListenerService() {
         super.onNotificationRemoved(sbn)
     }
     
+    private fun getServerUrl(): String {
+        // Para dispositivo físico, usa o IP da rede local
+        // Para emulador, usa 10.0.2.2 (localhost do host)
+        // Tente primeiro com o IP configurado, senão usa o padrão do emulador
+        return try {
+            // Você pode configurar o IP do servidor via SharedPreferences ou BuildConfig
+            // Por padrão, tenta o emulador
+            val serverHost = "10.0.2.2" // Altere para o IP do seu computador na rede local se estiver usando dispositivo físico
+            val serverPort = "5173" // Porta do Vite dev server
+            "http://$serverHost:$serverPort/api/expenses"
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting server URL", e)
+            "http://10.0.2.2:5173/api/expenses"
+        }
+    }
+    
     private fun sendExpenseToServer(expense: ExpenseData) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Endpoint do servidor Vue 3 (ajustar conforme necessário)
-                val url = URL("http://10.0.2.2:3000/api/expenses")
+                val serverUrl = getServerUrl()
+                Log.d(TAG, "Sending expense to: $serverUrl")
+                
+                val url = URL(serverUrl)
                 val connection = url.openConnection() as HttpURLConnection
                 
                 connection.requestMethod = "POST"
                 connection.setRequestProperty("Content-Type", "application/json")
                 connection.doOutput = true
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
                 
                 val jsonBody = JSONObject().apply {
                     put("type", "expense")
@@ -80,23 +100,27 @@ class NotificationListener : NotificationListenerService() {
                     put("timestamp", System.currentTimeMillis())
                 }
                 
+                Log.d(TAG, "Sending JSON: ${jsonBody.toString()}")
+                
                 connection.outputStream.use { os ->
                     os.write(jsonBody.toString().toByteArray())
                 }
                 
                 val responseCode = connection.responseCode
-                Log.d(TAG, "Server response: $responseCode")
+                Log.d(TAG, "Server response code: $responseCode")
                 
                 if (responseCode == HttpURLConnection.HTTP_OK) {
-                    Log.d(TAG, "Expense sent successfully")
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    Log.d(TAG, "Expense sent successfully. Response: $response")
                 } else {
-                    Log.e(TAG, "Failed to send expense: $responseCode")
+                    val errorStream = connection.errorStream?.bufferedReader()?.use { it.readText() }
+                    Log.e(TAG, "Failed to send expense: $responseCode - $errorStream")
                 }
                 
                 connection.disconnect()
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending expense to server", e)
+                Log.e(TAG, "Error sending expense to server: ${e.message}", e)
             }
         }
     }

@@ -30,14 +30,6 @@
                                 <div v-for="color in availableColors" :key="color" class="color-option"
                                     :class="{ selected: budgetColor === color }" :style="{ backgroundColor: color }"
                                     @click="budgetColor = color"></div>
-                                <div class="color-option custom-color" :class="{ selected: isCustomColor }">
-                                    <input type="color" v-model="budgetColor" class="color-input"
-                                        title="Escolher cor personalizada" />
-                                    <svg v-if="!isCustomColor" xmlns="http://www.w3.org/2000/svg" width="20" height="20"
-                                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <path d="M12 5v14M5 12h14" />
-                                    </svg>
-                                </div>
                             </div>
                         </div>
                         <div class="form-actions">
@@ -71,21 +63,25 @@ const budgetColor = ref('#4CAF50')
 const selectedGroupId = ref<string>('')
 
 const availableColors = [
-    '#4CAF50', // Verde
-    '#9C27B0', // Roxo
-    '#CDDC39', // Lima
-    '#FF9800', // Laranja
-    '#2196F3', // Azul
-    '#E91E63', // Rosa
-    '#00BCD4', // Ciano
-    '#FF5722', // Vermelho
-    '#795548', // Marrom
-    '#607D8B'  // Cinza-azul
+    // Verdes (claro, médio, escuro)
+    '#E8F5E9', '#4CAF50', '#2E7D32',
+    // Azuis (claro, médio, escuro)
+    '#E3F2FD', '#2196F3', '#1565C0',
+    // Vermelhos/Rosas (claro, médio, escuro)
+    '#FCE4EC', '#E91E63', '#AD1457',
+    // Laranjas (claro, médio, escuro)
+    '#FFF3E0', '#FF9800', '#E65100',
+    // Roxos (claro, médio, escuro)
+    '#F3E5F5', '#9C27B0', '#6A1B9A',
+    // Amarelos/Lima (claro, médio, escuro)
+    '#F9FBE7', '#CDDC39', '#9E9D24',
+    // Cianos/Turquesa (claro, médio)
+    '#E0F7FA', '#00BCD4',
+    // Marrons (médio)
+    '#795548'
 ]
 
-const isCustomColor = computed(() => {
-    return !availableColors.includes(budgetColor.value)
-})
+
 
 watch(() => props.show, (newVal) => {
     if (newVal) {
@@ -166,14 +162,17 @@ input:focus {
 }
 
 .color-picker {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+    gap: 12px;
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 4px;
 }
 
 .color-option {
-    width: 40px;
-    height: 40px;
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
     cursor: pointer;
     transition: all 0.2s;
@@ -182,43 +181,36 @@ input:focus {
     display: flex;
     align-items: center;
     justify-content: center;
+    -webkit-tap-highlight-color: transparent;
 }
 
-.color-option:hover {
-    transform: scale(1.1);
+.color-option:active {
+    transform: scale(0.9);
 }
 
 .color-option.selected {
     border-color: #333;
     box-shadow: 0 0 0 2px #fff, 0 0 0 4px #333;
+    transform: scale(1.05);
 }
 
-.custom-color {
-    background: linear-gradient(135deg,
-            #ff0000 0%, #ff7f00 14%, #ffff00 28%,
-            #00ff00 42%, #0000ff 57%, #4b0082 71%,
-            #9400d3 85%, #ff0000 100%);
-    overflow: hidden;
+/* Improve scrollbar for color picker on mobile */
+.color-picker::-webkit-scrollbar {
+    width: 6px;
 }
 
-.custom-color.selected {
-    border-color: #333;
+.color-picker::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
 }
 
-.color-input {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    cursor: pointer;
-    border: none;
-    padding: 0;
+.color-picker::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 3px;
 }
 
-.custom-color svg {
-    pointer-events: none;
-    color: white;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3));
+.color-picker::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
 
 .form-actions {

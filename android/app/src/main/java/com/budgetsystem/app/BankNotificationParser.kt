@@ -78,14 +78,21 @@ class BankNotificationParser {
         // 1.234,56 (sem R$)
         Pattern.compile("(?:^|\\s)([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})(?:\\s|$)"),
         // Valores sem pontuação: 1234,56
-        Pattern.compile("(?:^|\\s)([0-9]+,[0-9]{2})(?:\\s|$)")
+        Pattern.compile("(?:^|\\s)([0-9]+,[0-9]{2})(?:\\s|$)"),
+        // Valores com espaço: R$ 1 234,56
+        Pattern.compile("R\\$\\s*([0-9]{1,3}(?:\\s[0-9]{3})*(?:,[0-9]{2})?)"),
+        // Formato alternativo: 1234.56 (com ponto decimal)
+        Pattern.compile("(?:^|\\s)([0-9]+\\.[0-9]{2})(?:\\s|$)")
     )
     
     // Palavras-chave que indicam despesa
     private val expenseKeywords = listOf(
         "compra", "pagamento", "débito", "gasto", "pago",
         "aprovada", "realizada", "efetuada", "transferência",
-        "pix", "ted", "doc", "boleto", "fatura"
+        "pix", "ted", "doc", "boleto", "fatura",
+        "enviada", "enviado", "transferido", "transferida",
+        "recebida", "recebido", "saque", "retirada",
+        "transação", "débito automático", "cobrança"
     )
     
     fun parseNotification(packageName: String, text: String): ExpenseData? {
