@@ -398,6 +398,7 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: all 0.2s;
   z-index: 10;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .history-button:hover {
@@ -437,6 +438,7 @@ onMounted(async () => {
   justify-content: center;
   transition: all 0.2s;
   position: relative;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nav-button:hover {
