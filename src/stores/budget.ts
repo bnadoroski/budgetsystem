@@ -58,13 +58,11 @@ export const useBudgetStore = defineStore('budget', () => {
         const budgetsRef = getBudgetsCollection(userId)
 
         unsubscribe = onSnapshot(budgetsRef, (snapshot) => {
-            console.log('📢 Listener de budgets disparado! Total:', snapshot.docs.length)
             // Substitui completamente (não concatena)
             budgets.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
-            console.log('📦 Budgets atualizados:', budgets.value.length, 'itens')
             // Salva no cache após receber do Firebase
             saveToLocalStorage()
         }, (error) => {
@@ -93,8 +91,6 @@ export const useBudgetStore = defineStore('budget', () => {
             const budgetsRef = getBudgetsCollection(userId)
             const snapshot = await getDocs(budgetsRef)
 
-            console.log('localstorage', budgets.value)
-            console.log('banco', budgetsRef, snapshot)
             // Substitui completamente (não concatena) com dados do Firebase
             budgets.value = snapshot.docs.map(doc => ({
                 id: doc.id,
@@ -676,6 +672,11 @@ export const useBudgetStore = defineStore('budget', () => {
         localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
     }
 
+    const removePendingExpense = (expenseId: string) => {
+        pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
+        localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+    }
+
     // Load pending expenses from localStorage
     const loadPendingExpenses = () => {
         try {
@@ -741,6 +742,7 @@ export const useBudgetStore = defineStore('budget', () => {
         // Pending Expenses
         addPendingExpense,
         approvePendingExpense,
-        rejectPendingExpense
+        rejectPendingExpense,
+        removePendingExpense
     }
 })

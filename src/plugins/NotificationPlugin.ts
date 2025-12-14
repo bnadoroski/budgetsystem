@@ -1,6 +1,12 @@
 import { registerPlugin } from '@capacitor/core'
 
 export interface NotificationPluginPlugin {
+    // Verifica se tem permissão de notificação
+    checkPermission(): Promise<{ hasPermission: boolean }>
+
+    // Abre configurações para habilitar permissão
+    requestPermission(): Promise<void>
+
     // Listener para receber notificações de gastos
     addListener(
         eventName: 'bankExpense',

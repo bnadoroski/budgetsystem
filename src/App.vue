@@ -3,6 +3,7 @@ import { ref, watch, onMounted, onUnmounted, computed, onErrorCaptured } from 'v
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
 import { App as CapacitorApp } from '@capacitor/app'
+import NotificationPlugin from '@/plugins/NotificationPlugin'
 import BudgetBar from '@/components/BudgetBar.vue'
 import BudgetGroup from '@/components/BudgetGroup.vue'
 import AddBudgetModal from '@/components/AddBudgetModal.vue'
@@ -11,6 +12,7 @@ import SettingsModal from '@/components/SettingsModal.vue'
 import GroupsModal from '@/components/GroupsModal.vue'
 import ShareBudgetModal from '@/components/ShareBudgetModal.vue'
 import HistoryModal from '@/components/HistoryModal.vue'
+import PendingExpensesModal from '@/components/PendingExpensesModal.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 
 const budgetStore = useBudgetStore()
@@ -61,9 +63,12 @@ const showSettingsModal = ref(false)
 const showGroupsModal = ref(false)
 const showShareModal = ref(false)
 const showHistoryModal = ref(false)
+const showPendingExpensesModal = ref(false)
 const showDebugPanel = ref(false)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
 const debugInfo = ref('')
+
+const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
 // Handler do botão voltar do Android
 const handleBackButton = () => {
@@ -90,6 +95,10 @@ const handleBackButton = () => {
   }
   if (showHistoryModal.value) {
     showHistoryModal.value = false
+    return
+  }
+  if (showPendingExpensesModal.value) {
+    showPendingExpensesModal.value = false
     return
   }
   if (showDebugPanel.value) {
@@ -188,6 +197,56 @@ onMounted(async () => {
   try {
     // Registra listener do botão voltar do Android
     CapacitorApp.addListener('backButton', handleBackButton)
+
+    // Registra listener de notificações bancárias
+    console.log('🔔 Registrando listener de notificações...')
+
+    // Verifica se tem permissão
+    const permissionResult = await NotificationPlugin.checkPermission()
+    console.log('🔐 Permissão de notificação:', permissionResult.hasPermission ? 'HABILITADA ✅' : 'DESABILITADA ❌')
+
+    if (!permissionResult.hasPermission) {
+      console.warn('⚠️ Permissão de notificação não habilitada!')
+
+      // Pergunta ao usuário se quer habilitar
+      const enablePermission = confirm(
+        '🔔 Permissão de Notificação\n\n' +
+        'Para detectar gastos automaticamente, o app precisa acessar suas notificações bancárias.\n\n' +
+        'Deseja habilitar agora?'
+      )
+
+      if (enablePermission) {
+        await NotificationPlugin.requestPermission()
+        console.log('📱 Configurações abertas. Por favor, habilite "Budget System"')
+      }
+    } else {
+      console.log('✅ Permissão já habilitada! Listener pronto para capturar notificações.')
+    }
+
+    await NotificationPlugin.addListener('bankExpense', (expense) => {
+      console.log('💰 ===== NOTIFICAÇÃO BANCÁRIA RECEBIDA =====')
+      console.log('🏦 Banco:', expense.bank)
+      console.log('💵 Valor: R$', expense.amount)
+      console.log('📝 Descrição:', expense.description)
+      console.log('🏷️ Categoria:', expense.category)
+      console.log('🕐 Timestamp:', new Date(expense.timestamp).toLocaleString())
+      console.log('==========================================')
+
+      // Adiciona a despesa pendente para aprovação
+      budgetStore.addPendingExpense({
+        amount: expense.amount,
+        bank: expense.bank,
+        description: expense.description,
+        category: expense.category,
+        timestamp: expense.timestamp
+      })
+
+      // Abre modal automaticamente se houver despesas pendentes
+      if (budgetStore.pendingExpenses.length > 0) {
+        showPendingExpensesModal.value = true
+      }
+    })
+    console.log('✅ Listener de notificações registrado com sucesso!')
 
     // Aguarda o Firebase verificar se há usuário autenticado
     const maxWaitTime = 2000 // 2 segundos no máximo
@@ -340,6 +399,15 @@ onUnmounted(() => {
               </linearGradient>
             </defs>
           </g>
+        </svg>
+      </button>
+
+      <button class="nav-button pending-btn" title="Despesas Pendentes" @click="showPendingExpensesModal = true">
+        <span class="badge" v-if="pendingExpensesCount > 0">{{ pendingExpensesCount }}</span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
         </svg>
       </button>
 
@@ -500,6 +568,7 @@ onUnmounted(() => {
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
     <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
+    <PendingExpensesModal :show="showPendingExpensesModal" @close="showPendingExpensesModal = false" />
     <DebugPanel :show="showDebugPanel" @close="showDebugPanel = false" />
   </div>
 </template>
@@ -814,6 +883,37 @@ body.dark-mode .history-button:hover {
 
 .pt-8 {
   padding-top: 1.5rem;
+}
+
+.pending-btn {
+  position: relative;
+}
+
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #E91E63;
+  color: white;
+  border-radius: 10px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: bold;
+  min-width: 18px;
+  text-align: center;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.1);
+  }
 }
 
 @media (min-width: 601px) {
