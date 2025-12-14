@@ -86,25 +86,29 @@ export const useBudgetStore = defineStore('budget', () => {
     // Carrega budgets do Firestore
     const loadBudgets = async (userId: string) => {
         try {
+            // Carrega do cache PRIMEIRO para exibição instantânea
+            loadFromLocalStorage()
+
             loading.value = true
             const budgetsRef = getBudgetsCollection(userId)
             const snapshot = await getDocs(budgetsRef)
 
+            console.log('localstorage', budgets.value)
+            console.log('banco', budgetsRef, snapshot)
             // Substitui completamente (não concatena) com dados do Firebase
             budgets.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
 
-            // Salva no cache após buscar do Firebase
+            // Salva atualização no cache
             saveToLocalStorage()
 
             // Inicia listener para atualizações em tempo real
             startBudgetsListener(userId)
         } catch (error) {
             console.error('Erro ao carregar budgets:', error)
-            // Apenas em caso de erro carrega do localStorage
-            loadFromLocalStorage()
+            // Já carregou do cache no início
         } finally {
             loading.value = false
         }
@@ -127,13 +131,6 @@ export const useBudgetStore = defineStore('budget', () => {
     const addBudget = async (name: string, totalValue: number, color?: string, groupId?: string) => {
         const authStore = useAuthStore()
 
-        console.log('💰 addBudget chamado:', { name, totalValue, color, groupId })
-        console.log('👤 Auth status:', {
-            isAuthenticated: authStore.isAuthenticated,
-            userId: authStore.userId,
-            user: authStore.user
-        })
-
         const newBudget: any = {
             name,
             totalValue,
@@ -149,11 +146,8 @@ export const useBudgetStore = defineStore('budget', () => {
             newBudget.groupId = groupId
         }
 
-        console.log('📦 Budget a ser criado:', newBudget)
-
         if (authStore.userId) {
             try {
-                console.log('🔥 Tentando salvar no Firestore...')
                 const budgetsRef = getBudgetsCollection(authStore.userId)
 
                 // Adiciona timeout de 10 segundos
@@ -166,8 +160,6 @@ export const useBudgetStore = defineStore('budget', () => {
                     timeoutPromise
                 ]) as any
 
-                console.log('✅ Budget salvo no Firestore com ID:', docRef.id)
-                // O listener atualizará automaticamente a lista
             } catch (error) {
                 console.error('❌ Erro ao adicionar budget no Firestore:', error)
                 console.error('📝 Detalhes do erro:', JSON.stringify(error, null, 2))
@@ -270,7 +262,7 @@ export const useBudgetStore = defineStore('budget', () => {
     }
 
     // Inicializa (tenta carregar do localStorage primeiro)
-    loadFromLocalStorage()
+    // loadFromLocalStorage()
 
     // Carrega limite total do localStorage
     const savedLimit = localStorage.getItem('totalBudgetLimit')
@@ -303,16 +295,23 @@ export const useBudgetStore = defineStore('budget', () => {
 
     const loadGroups = async (userId: string) => {
         try {
+            // Carrega do cache PRIMEIRO para exibição instantânea
+            loadGroupsFromLocalStorage()
+
             const groupsRef = getGroupsCollection(userId)
             const snapshot = await getDocs(groupsRef)
             groups.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as BudgetGroup))
+
+            // Salva atualização no cache
+            saveGroupsToLocalStorage()
+
             startGroupsListener(userId)
         } catch (error) {
             console.error('Erro ao carregar grupos:', error)
-            loadGroupsFromLocalStorage()
+            // Já carregou do cache no início
         }
     }
 
@@ -321,15 +320,12 @@ export const useBudgetStore = defineStore('budget', () => {
             groupsUnsubscribe()
         }
 
-        console.log('🎧 Iniciando listener de grupos para userId:', userId)
         const groupsRef = getGroupsCollection(userId)
         groupsUnsubscribe = onSnapshot(groupsRef, (snapshot) => {
-            console.log('📢 Listener de grupos disparado! Total:', snapshot.docs.length)
             groups.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as BudgetGroup))
-            console.log('📦 Grupos atualizados:', groups.value)
             saveGroupsToLocalStorage()
         })
     }
@@ -349,14 +345,10 @@ export const useBudgetStore = defineStore('budget', () => {
             isExpanded: true
         }
 
-        console.log('🔹 addGroup chamado:', { name, color, userId: authStore.userId })
-
         if (authStore.userId) {
             try {
-                console.log('🔹 Tentando adicionar grupo ao Firebase...')
                 const groupsRef = getGroupsCollection(authStore.userId)
                 const docRef = await addDoc(groupsRef, newGroup)
-                console.log('✅ Grupo adicionado ao Firebase com ID:', docRef.id)
             } catch (error) {
                 console.error('❌ Erro ao adicionar grupo:', error)
             }

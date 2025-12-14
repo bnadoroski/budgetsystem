@@ -169,7 +169,7 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       budgetStore.stopBudgetsListener()
       budgetStore.stopGroupsListener()
 
-      await budgetStore.migrateBudgetsToFirestore(newUser.uid)
+      // await budgetStore.migrateBudgetsToFirestore(newUser.uid)
       await budgetStore.loadBudgets(newUser.uid)
       await budgetStore.loadGroups(newUser.uid)
       await budgetStore.startSharedBudgetsListener(newUser.uid)
@@ -198,7 +198,7 @@ onMounted(async () => {
     }
 
     if (authStore.user) {
-      // Usuário autenticado - carrega dados do Firebase
+      // Usuário autenticado - carrega cache primeiro, depois Firebase
       await budgetStore.loadBudgets(authStore.user.uid)
       await budgetStore.loadGroups(authStore.user.uid)
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
