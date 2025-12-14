@@ -58,10 +58,15 @@ export const useBudgetStore = defineStore('budget', () => {
         const budgetsRef = getBudgetsCollection(userId)
 
         unsubscribe = onSnapshot(budgetsRef, (snapshot) => {
+            console.log('📢 Listener de budgets disparado! Total:', snapshot.docs.length)
+            // Substitui completamente (não concatena)
             budgets.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
+            console.log('📦 Budgets atualizados:', budgets.value.length, 'itens')
+            // Salva no cache após receber do Firebase
+            saveToLocalStorage()
         }, (error) => {
             console.error('Erro ao carregar budgets:', error)
             // Fallback para localStorage em caso de erro
@@ -85,15 +90,20 @@ export const useBudgetStore = defineStore('budget', () => {
             const budgetsRef = getBudgetsCollection(userId)
             const snapshot = await getDocs(budgetsRef)
 
+            // Substitui completamente (não concatena) com dados do Firebase
             budgets.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
 
+            // Salva no cache após buscar do Firebase
+            saveToLocalStorage()
+
             // Inicia listener para atualizações em tempo real
             startBudgetsListener(userId)
         } catch (error) {
             console.error('Erro ao carregar budgets:', error)
+            // Apenas em caso de erro carrega do localStorage
             loadFromLocalStorage()
         } finally {
             loading.value = false
@@ -691,6 +701,14 @@ export const useBudgetStore = defineStore('budget', () => {
 
     loadPendingExpenses()
 
+    // Limpa todos os dados locais (para quando não há autenticação)
+    const clearLocalData = () => {
+        budgets.value = []
+        groups.value = []
+        history.value = []
+        pendingExpenses.value = []
+    }
+
     return {
         budgets,
         groups,
@@ -711,6 +729,7 @@ export const useBudgetStore = defineStore('budget', () => {
         percentage,
         migrateBudgetsToFirestore,
         setTotalBudgetLimit,
+        clearLocalData,
         // Groups
         loadGroups,
         addGroup,

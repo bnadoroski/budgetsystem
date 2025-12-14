@@ -3,8 +3,11 @@
         <div class="group-header" @click="handleToggle">
             <div class="group-info">
                 <div class="group-color" :style="{ backgroundColor: group.color }"></div>
-                <h3 class="group-name">{{ group.name }}</h3>
-                <span class="group-count">({{ groupBudgets.length }})</span>
+                <div class="group-text">
+                    <h3 class="group-name">{{ group.name }}</h3>
+                    <span class="group-count">{{ groupBudgets.length }} budget{{ groupBudgets.length !== 1 ? 's' : ''
+                        }}</span>
+                </div>
             </div>
             <div class="group-actions">
                 <span class="group-total">{{ formatCurrency(groupTotal) }}</span>
@@ -17,10 +20,19 @@
 
         <Transition name="expand">
             <div v-if="group.isExpanded" class="group-budgets">
+                <button type="button" class="add-budget-btn-inside" @click.stop="handleAddBudgetToGroup"
+                    title="Adicionar budget neste grupo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Adicionar Budget
+                </button>
                 <BudgetBar v-for="budget in groupBudgets" :key="budget.id" :budget="budget"
                     @edit="() => emit('editBudget', budget.id)" @delete="() => emit('deleteBudget', budget.id)" />
-                <div v-if="groupBudgets.length === 0" class="no-budgets">
+                <div v-if="groupBudgets.length === 0" class="no-budgets" @click="handleAddBudgetToGroup">
                     <p>Nenhum budget neste grupo</p>
+                    <p class="add-hint">Clique para adicionar</p>
                 </div>
             </div>
         </Transition>
@@ -85,8 +97,8 @@ const formatCurrency = (value: number) => {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    cursor: pointer;
     user-select: none;
+    cursor: pointer;
     transition: background-color 0.2s;
 }
 
@@ -98,6 +110,7 @@ const formatCurrency = (value: number) => {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex: 1;
 }
 
 .group-color {
@@ -107,16 +120,24 @@ const formatCurrency = (value: number) => {
     flex-shrink: 0;
 }
 
+.group-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .group-name {
     font-size: 18px;
     font-weight: 600;
     color: #333;
     margin: 0;
+    line-height: 1.2;
 }
 
 .group-count {
-    font-size: 14px;
+    font-size: 12px;
     color: #999;
+    font-weight: 400;
 }
 
 .group-actions {
@@ -142,6 +163,34 @@ const formatCurrency = (value: number) => {
 
 .group-budgets {
     padding: 0 16px 16px;
+}
+
+.add-budget-btn-inside {
+    width: calc(100% - 32px);
+    margin: 8px 16px;
+    padding: 12px;
+    background: #E8F5E9;
+    color: #2E7D32;
+    border: 2px dashed #81C784;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.add-budget-btn-inside:hover {
+    background: #C8E6C9;
+    border-color: #66BB6A;
+    color: #1B5E20;
+}
+
+.add-budget-btn-inside:active {
+    transform: scale(0.98);
 }
 
 .no-budgets {

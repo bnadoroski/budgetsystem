@@ -12,8 +12,9 @@
                         </div>
                         <div class="form-group">
                             <label for="budget-value">Valor Total</label>
-                            <input id="budget-value" v-model.number="budgetValue" type="number" step="0.01" min="0"
-                                required placeholder="0.00" />
+                            <input id="budget-value" required :model-modifiers="{ number: true }"
+                                v-model.lazy="budgetValue" v-money3="moneyConfig" />
+                            <QuickAmountButtons @add="addAmount" />
                         </div>
                         <div class="form-group">
                             <label for="budget-group">Grupo (opcional)</label>
@@ -46,6 +47,10 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { Money3Directive } from 'v-money3'
+import QuickAmountButtons from './QuickAmountButtons.vue'
+
+const vMoney3 = Money3Directive
 
 const props = defineProps<{
     show: boolean
@@ -59,9 +64,62 @@ const emit = defineEmits<{
 
 const budgetStore = useBudgetStore()
 const budgetName = ref('')
-const budgetValue = ref<number>(0)
+const budgetValue = ref('0.00')
 const budgetColor = ref('#4CAF50')
 const selectedGroupId = ref<string>('')
+
+const moneyConfig = {
+    decimal: ',',
+    thousands: '.',
+    prefix: 'R$ ',
+    suffix: '',
+    precision: 2,
+    masked: true
+}
+
+const addAmount = (amount: number) => {
+    // Garante que estamos trabalhando com número, não string
+    let current = 0
+
+    try {
+        const rawValue = budgetValue.value
+
+        if (typeof rawValue === 'number') {
+            current = rawValue
+        } else if (typeof rawValue === 'string') {
+            // v-money3 SEMPRE formata para brasileiro: R$ 4.000,00
+            // Então sempre usa formato brasileiro: remove pontos de milhar, vírgula vira ponto
+            const cleanStr = rawValue
+                .replace(/[R$\s]/g, '')     // Remove R$ e espaços
+                .replace(/\./g, '')         // Remove pontos de milhar  
+                .replace(',', '.')          // Vírgula vira ponto decimal
+
+            current = parseFloat(cleanStr) || 0
+        }
+    } catch (e) {
+        console.error('Erro ao processar valor atual:', e)
+        current = 0
+    }
+
+    // IMPORTANTE: Garante que amount também é número
+    const numAmount = Number(amount)
+    const newValue = current + numAmount
+
+    console.log('addAmount:', {
+        rawInput: budgetValue.value,
+        current,
+        amount: numAmount,
+        newValue,
+        types: {
+            current: typeof current,
+            amount: typeof numAmount,
+            result: typeof newValue
+        }
+    })
+
+    // Atribui como string numérica pura (ex: "520.00")
+    budgetValue.value = newValue.toFixed(2)
+}
 
 const availableColors = [
     // Verdes (claro, médio, escuro)
@@ -87,14 +145,30 @@ const availableColors = [
 watch(() => props.show, (newVal) => {
     if (newVal) {
         budgetName.value = ''
-        budgetValue.value = 0
+        budgetValue.value = '0.00'
         budgetColor.value = '#4CAF50'
         selectedGroupId.value = props.preselectedGroupId || ''
     }
 })
 
 const handleSubmit = () => {
-    if (budgetName.value && budgetValue.value > 0) {
+    // v-money3 sempre formata para brasileiro, então sempre processa assim
+    let numericValue = 0
+    const rawValue = budgetValue.value
+
+    if (typeof rawValue === 'number') {
+        numericValue = rawValue
+    } else if (typeof rawValue === 'string') {
+        // v-money3 formata para: R$ 4.000,00
+        const cleanStr = rawValue
+            .replace(/[R$\s]/g, '')     // Remove R$ e espaços
+            .replace(/\./g, '')         // Remove pontos de milhar
+            .replace(',', '.')          // Vírgula vira ponto decimal
+
+        numericValue = parseFloat(cleanStr) || 0
+    }
+
+    if (budgetName.value && numericValue > 0) {
         // Verificar se já existe budget com mesmo nome
         const nameExists = budgetStore.budgets.some(
             b => b.name.toLowerCase() === budgetName.value.toLowerCase()
@@ -105,7 +179,7 @@ const handleSubmit = () => {
             return
         }
 
-        emit('submit', budgetName.value, budgetValue.value, budgetColor.value, selectedGroupId.value || undefined)
+        emit('submit', budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined)
         close()
     }
 }

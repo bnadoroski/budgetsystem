@@ -2,6 +2,10 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import type { Budget } from '@/types/budget'
+import { Money3Directive } from 'v-money3'
+import QuickAmountButtons from './QuickAmountButtons.vue'
+
+const vMoney3 = Money3Directive
 
 const props = defineProps<{
     show: boolean
@@ -12,13 +16,61 @@ const emit = defineEmits<{
 }>()
 
 const budgetStore = useBudgetStore()
-const totalBudgetLimit = ref(budgetStore.totalBudgetLimit || 0)
+const totalBudgetLimit = ref((budgetStore.totalBudgetLimit || 0).toFixed(2).replace('.', ','))
 const resetDay = ref(budgetStore.resetDay || 5)
 const editingBudget = ref<Budget | null>(null)
 const editName = ref('')
 const editTotal = ref(0)
 const editColor = ref('')
 const savedLimitFeedback = ref(false)
+
+const moneyConfig = {
+    decimal: ',',
+    thousands: '.',
+    prefix: 'R$ ',
+    suffix: '',
+    precision: 2,
+    masked: true
+}
+
+const addAmountToLimit = (amount: number) => {
+    // Garante que estamos trabalhando com número, não string
+    let current = 0
+
+    try {
+        const rawValue = totalBudgetLimit.value
+
+        if (typeof rawValue === 'number') {
+            current = rawValue
+        } else if (typeof rawValue === 'string') {
+            // Se tem vírgula = valor digitado pelo usuário (formato brasileiro)
+            // Se não tem vírgula = valor dos botões (formato americano)
+            let cleanStr = rawValue
+
+            if (cleanStr.includes(',')) {
+                // Formato brasileiro: R$ 2.000,50
+                cleanStr = cleanStr
+                    .replace(/[R$\s]/g, '')
+                    .replace(/\./g, '')      // Remove pontos de milhar
+                    .replace(',', '.')       // Vírgula vira ponto decimal
+            } else {
+                // Formato americano dos botões: 500.00
+                cleanStr = cleanStr.replace(/[^0-9.]/g, '')
+            }
+
+            current = parseFloat(cleanStr) || 0
+        }
+    } catch (e) {
+        console.error('Erro ao processar valor atual:', e)
+        current = 0
+    }
+
+    const numAmount = Number(amount)
+    const newValue = current + numAmount
+
+    // Atribui como string numérica pura
+    totalBudgetLimit.value = newValue.toFixed(2)
+}
 
 // General Settings
 const currency = ref('BRL')
@@ -29,16 +81,21 @@ const totalAllocated = computed(() => {
     return budgetStore.budgets.reduce((sum, b) => sum + b.totalValue, 0)
 })
 
+const totalBudgetLimitNumeric = computed(() => {
+    return parseFloat(totalBudgetLimit.value.replace('R$ ', '').replace(/\./g, '').replace(',', '.')) || 0
+})
+
 const isOverLimit = computed(() => {
-    return totalBudgetLimit.value > 0 && totalAllocated.value > totalBudgetLimit.value
+    return totalBudgetLimitNumeric.value > 0 && totalAllocated.value > totalBudgetLimitNumeric.value
 })
 
 const remainingBudget = computed(() => {
-    return totalBudgetLimit.value > 0 ? totalBudgetLimit.value - totalAllocated.value : 0
+    return totalBudgetLimitNumeric.value > 0 ? totalBudgetLimitNumeric.value - totalAllocated.value : 0
 })
 
 const handleSaveLimit = () => {
-    budgetStore.setTotalBudgetLimit(totalBudgetLimit.value)
+    const numericValue = parseFloat(totalBudgetLimit.value.replace('R$ ', '').replace(/\./g, '').replace(',', '.')) || 0
+    budgetStore.setTotalBudgetLimit(numericValue)
     budgetStore.setResetDay(resetDay.value)
     savedLimitFeedback.value = true
     setTimeout(() => {
@@ -149,8 +206,9 @@ onMounted(() => {
 
                             <div class="input-group">
                                 <label>Valor Total Disponível</label>
-                                <input v-model.number="totalBudgetLimit" type="number" placeholder="Ex: 8000"
-                                    step="0.01" min="0" />
+                                <input :model-modifiers="{ number: true }" v-model.lazy="totalBudgetLimit"
+                                    v-money3="moneyConfig" />
+                                <QuickAmountButtons @add="addAmountToLimit" />
                                 <label style="margin-top: 16px;">Dia de Reset Mensal</label>
                                 <input v-model.number="resetDay" type="number" placeholder="Dia do mês (1-28)" min="1"
                                     max="28" />
@@ -164,10 +222,10 @@ onMounted(() => {
                                 </Transition>
                             </div>
 
-                            <div v-if="totalBudgetLimit > 0" class="budget-summary">
+                            <div v-if="totalBudgetLimitNumeric > 0" class="budget-summary">
                                 <div class="summary-row">
                                     <span>Total Disponível:</span>
-                                    <strong>{{ formatCurrency(totalBudgetLimit) }}</strong>
+                                    <strong>{{ formatCurrency(totalBudgetLimitNumeric) }}</strong>
                                 </div>
                                 <div class="summary-row">
                                     <span>Total Alocado:</span>

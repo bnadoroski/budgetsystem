@@ -117,9 +117,9 @@ const handleGoogleSignIn = async () => {
 
         const result = await authStore.signInWithGoogle()
         console.log('🔵 Login com Google concluído:', result)
-        
+
         loading.value = false
-        
+
         if (result.success) {
             close()
         }

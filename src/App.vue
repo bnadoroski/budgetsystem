@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed, onErrorCaptured } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, onErrorCaptured } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
+import { App as CapacitorApp } from '@capacitor/app'
 import BudgetBar from '@/components/BudgetBar.vue'
 import BudgetGroup from '@/components/BudgetGroup.vue'
 import AddBudgetModal from '@/components/AddBudgetModal.vue'
@@ -64,6 +65,42 @@ const showDebugPanel = ref(false)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
 const debugInfo = ref('')
 
+// Handler do botão voltar do Android
+const handleBackButton = () => {
+  // Fecha modais abertas na ordem de prioridade
+  if (showAddModal.value) {
+    showAddModal.value = false
+    return
+  }
+  if (showAuthModal.value) {
+    showAuthModal.value = false
+    return
+  }
+  if (showSettingsModal.value) {
+    showSettingsModal.value = false
+    return
+  }
+  if (showGroupsModal.value) {
+    showGroupsModal.value = false
+    return
+  }
+  if (showShareModal.value) {
+    showShareModal.value = false
+    return
+  }
+  if (showHistoryModal.value) {
+    showHistoryModal.value = false
+    return
+  }
+  if (showDebugPanel.value) {
+    showDebugPanel.value = false
+    return
+  }
+
+  // Se nenhuma modal está aberta, minimiza o app
+  CapacitorApp.minimizeApp()
+}
+
 const handleAddBudget = (name: string, value: number, color: string, groupId?: string) => {
   budgetStore.addBudget(name, value, color, groupId)
   selectedGroupIdForNewBudget.value = undefined
@@ -125,18 +162,22 @@ const handleProfileClick = () => {
 watch(() => authStore.user, async (newUser, oldUser) => {
   try {
     if (newUser && !oldUser) {
-      // Usuário acabou de fazer login
-      console.log('🔐 Login detectado, carregando dados do usuário:', newUser.uid)
+      // Limpa dados antigos antes de carregar novos
+      budgetStore.clearLocalData()
+
+      // Para listeners antigos antes de iniciar novos
+      budgetStore.stopBudgetsListener()
+      budgetStore.stopGroupsListener()
+
       await budgetStore.migrateBudgetsToFirestore(newUser.uid)
       await budgetStore.loadBudgets(newUser.uid)
       await budgetStore.loadGroups(newUser.uid)
       await budgetStore.startSharedBudgetsListener(newUser.uid)
-      console.log('✅ Dados do usuário carregados')
     } else if (!newUser && oldUser) {
       // Usuário fez logout
-      console.log('🚪 Logout detectado, parando listeners')
       budgetStore.stopBudgetsListener()
       budgetStore.stopGroupsListener()
+      budgetStore.clearLocalData()
     }
   } catch (error) {
     handleError(error as Error, 'autenticação')
@@ -145,38 +186,43 @@ watch(() => authStore.user, async (newUser, oldUser) => {
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
   try {
-    debugInfo.value = '🔄 Iniciando...'
-    console.log('🔄 App.vue onMounted - Iniciando...')
-    console.log('📊 Estado atual:', {
-      isAuthenticated: authStore.isAuthenticated,
-      userId: authStore.userId,
-      budgetsCount: budgetStore.budgets.length,
-      groupsCount: budgetStore.groups.length
-    })
+    // Registra listener do botão voltar do Android
+    CapacitorApp.addListener('backButton', handleBackButton)
+
+    // Aguarda o Firebase verificar se há usuário autenticado
+    const maxWaitTime = 2000 // 2 segundos no máximo
+    const startTime = Date.now()
+
+    while (authStore.loading && (Date.now() - startTime) < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
 
     if (authStore.user) {
-      debugInfo.value = `✅ User: ${authStore.user.email}\nCarregando dados...`
-      console.log('✅ Usuário autenticado, carregando dados...', authStore.user.uid)
-
+      // Usuário autenticado - carrega dados do Firebase
       await budgetStore.loadBudgets(authStore.user.uid)
       await budgetStore.loadGroups(authStore.user.uid)
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
-
-      console.log('📊 Dados carregados:', {
-        budgets: budgetStore.budgets.length,
-        groups: budgetStore.groups.length
-      })
-
-      debugInfo.value = `📊 ${budgetStore.budgets.length} budgets, ${budgetStore.groups.length} grupos`
-      setTimeout(() => { debugInfo.value = '' }, 3000) // Remove depois de 3s
     } else {
-      debugInfo.value = '⚠️ Não autenticado'
-      console.log('⚠️ Usuário não autenticado no onMounted')
+      // Não está autenticado - limpa dados locais e grupos fantasmas
+      localStorage.removeItem('budgets')
+      localStorage.removeItem('budgetGroups')
+      localStorage.removeItem('pendingExpenses')
+      budgetStore.clearLocalData() // Limpa grupos em memória também
+
+      // Abre modal de login automaticamente
+      setTimeout(() => {
+        showAuthModal.value = true
+      }, 500)
     }
   } catch (error) {
     handleError(error as Error, 'inicialização do app')
     debugInfo.value = '❌ Erro na inicialização'
   }
+})
+
+// Remove listener ao desmontar componente
+onUnmounted(() => {
+  CapacitorApp.removeAllListeners()
 })
 </script>
 
@@ -195,14 +241,14 @@ onMounted(async () => {
     </div>
 
     <!-- Debug Info (top center) -->
-    <div v-if="debugInfo" class="debug-info">
+    <!-- <div v-if="debugInfo" class="debug-info">
       {{ debugInfo }}
-    </div>
+    </div> -->
 
     <!-- Debug Button (top left) -->
-    <button class="debug-button" @click="showDebugPanel = true" title="Debug Panel">
+    <!-- <button class="debug-button" @click="showDebugPanel = true" title="Debug Panel">
       🐛
-    </button>
+    </button> -->
 
     <!-- History Button -->
     <div class="pt-8">
@@ -767,7 +813,7 @@ body.dark-mode .history-button:hover {
 }
 
 .pt-8 {
-  padding-top: 1rem;
+  padding-top: 1.5rem;
 }
 
 @media (min-width: 601px) {
