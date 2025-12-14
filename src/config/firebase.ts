@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { Capacitor } from '@capacitor/core'
 
 // Configuração do Firebase usando variáveis de ambiente
 const firebaseConfig = {
@@ -17,4 +18,11 @@ const app = initializeApp(firebaseConfig)
 
 // Serviços do Firebase
 export const auth = getAuth(app)
+
+// Configurar auth para funcionar com Capacitor
+if (Capacitor.isNativePlatform()) {
+    // Permitir popup em iframe para mobile
+    auth.settings.appVerificationDisabledForTesting = false
+}
+
 export const db = getFirestore(app)

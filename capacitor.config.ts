@@ -5,8 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Budget System',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
-    hostname: 'budgetsystem.app'
+    androidScheme: 'https'
   }
 };
 

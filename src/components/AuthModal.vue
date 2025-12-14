@@ -89,23 +89,49 @@ watch(() => props.show, (newVal) => {
 })
 
 const handleSubmit = async () => {
-    loading.value = true
+    try {
+        loading.value = true
+        authStore.error = null
 
-    const result = isLogin.value
-        ? await authStore.signIn(email.value, password.value)
-        : await authStore.signUp(email.value, password.value)
+        const result = isLogin.value
+            ? await authStore.signIn(email.value, password.value)
+            : await authStore.signUp(email.value, password.value)
 
-    loading.value = false
+        loading.value = false
 
-    if (result.success) {
-        close()
+        if (result.success) {
+            close()
+        }
+    } catch (error) {
+        loading.value = false
+        console.error('❌ Erro no submit de autenticação:', error)
+        authStore.error = error instanceof Error ? error.message : 'Erro desconhecido ao fazer login'
     }
 }
 
 const handleGoogleSignIn = async () => {
-    // Com redirect, não precisa de loading pois o app vai recarregar
-    await authStore.signInWithGoogle()
-    // O redirect vai acontecer automaticamente
+    try {
+        console.log('🔵 Iniciando login com Google...')
+        authStore.error = null
+        loading.value = true
+
+        const result = await authStore.signInWithGoogle()
+        console.log('🔵 Login com Google concluído:', result)
+        
+        loading.value = false
+        
+        if (result.success) {
+            close()
+        }
+    } catch (error) {
+        loading.value = false
+        console.error('❌ Erro no Google Sign In:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido'
+        authStore.error = `Erro ao fazer login com Google: ${errorMessage}`
+
+        // Mostrar alert também para garantir que o usuário veja
+        alert(`Erro ao fazer login com Google:\n\n${errorMessage}\n\nVerifique o console para mais detalhes.`)
+    }
 }
 
 const toggleMode = () => {

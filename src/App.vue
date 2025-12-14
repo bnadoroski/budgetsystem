@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, watch, onMounted, computed, onErrorCaptured } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
 import BudgetBar from '@/components/BudgetBar.vue'
@@ -14,6 +14,46 @@ import DebugPanel from '@/components/DebugPanel.vue'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
+
+// Error handling state
+const errorMessage = ref<string | null>(null)
+const errorDetails = ref<string | null>(null)
+
+// Global error handler
+const handleError = (error: Error, context: string) => {
+  console.error(`❌ Erro em ${context}:`, error)
+  errorMessage.value = `Erro em ${context}`
+  errorDetails.value = `${error.name}: ${error.message}\n\nStack:\n${error.stack || 'Não disponível'}`
+
+  // Auto-hide depois de 10 segundos
+  setTimeout(() => {
+    errorMessage.value = null
+    errorDetails.value = null
+  }, 10000)
+}
+
+// Capture Vue component errors
+onErrorCaptured((error: Error, instance, info) => {
+  handleError(error, `componente Vue (${info})`)
+  return false // Prevent error propagation
+})
+
+// Handle unhandled promise rejections
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('❌ Unhandled Promise Rejection:', event.reason)
+    const error = event.reason instanceof Error ? event.reason : new Error(String(event.reason))
+    handleError(error, 'Promise não tratada')
+    event.preventDefault()
+  })
+
+  // Handle global errors
+  window.addEventListener('error', (event) => {
+    console.error('❌ Global Error:', event.error)
+    handleError(event.error || new Error(event.message), 'erro global')
+    event.preventDefault()
+  })
+}
 const showAddModal = ref(false)
 const showAuthModal = ref(false)
 const showSettingsModal = ref(false)
@@ -83,59 +123,77 @@ const handleProfileClick = () => {
 
 // Quando o usuário faz login/logout
 watch(() => authStore.user, async (newUser, oldUser) => {
-  if (newUser && !oldUser) {
-    // Usuário acabou de fazer login
-    console.log('🔐 Login detectado, carregando dados do usuário:', newUser.uid)
-    await budgetStore.migrateBudgetsToFirestore(newUser.uid)
-    await budgetStore.loadBudgets(newUser.uid)
-    await budgetStore.loadGroups(newUser.uid)
-    await budgetStore.startSharedBudgetsListener(newUser.uid)
-    console.log('✅ Dados do usuário carregados')
-  } else if (!newUser && oldUser) {
-    // Usuário fez logout
-    console.log('🚪 Logout detectado, parando listeners')
-    budgetStore.stopBudgetsListener()
-    budgetStore.stopGroupsListener()
+  try {
+    if (newUser && !oldUser) {
+      // Usuário acabou de fazer login
+      console.log('🔐 Login detectado, carregando dados do usuário:', newUser.uid)
+      await budgetStore.migrateBudgetsToFirestore(newUser.uid)
+      await budgetStore.loadBudgets(newUser.uid)
+      await budgetStore.loadGroups(newUser.uid)
+      await budgetStore.startSharedBudgetsListener(newUser.uid)
+      console.log('✅ Dados do usuário carregados')
+    } else if (!newUser && oldUser) {
+      // Usuário fez logout
+      console.log('🚪 Logout detectado, parando listeners')
+      budgetStore.stopBudgetsListener()
+      budgetStore.stopGroupsListener()
+    }
+  } catch (error) {
+    handleError(error as Error, 'autenticação')
   }
 })
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
-  debugInfo.value = '🔄 Iniciando...'
-  console.log('🔄 App.vue onMounted - Iniciando...')
-  console.log('📊 Estado atual:', {
-    isAuthenticated: authStore.isAuthenticated,
-    userId: authStore.userId,
-    budgetsCount: budgetStore.budgets.length,
-    groupsCount: budgetStore.groups.length
-  })
-
-  // Checar resultado do redirect do Google
-  await authStore.checkRedirectResult()
-
-  if (authStore.user) {
-    debugInfo.value = `✅ User: ${authStore.user.email}\nCarregando dados...`
-    console.log('✅ Usuário autenticado, carregando dados...', authStore.user.uid)
-
-    await budgetStore.loadBudgets(authStore.user.uid)
-    await budgetStore.loadGroups(authStore.user.uid)
-    await budgetStore.startSharedBudgetsListener(authStore.user.uid)
-
-    console.log('📊 Dados carregados:', {
-      budgets: budgetStore.budgets.length,
-      groups: budgetStore.groups.length
+  try {
+    debugInfo.value = '🔄 Iniciando...'
+    console.log('🔄 App.vue onMounted - Iniciando...')
+    console.log('📊 Estado atual:', {
+      isAuthenticated: authStore.isAuthenticated,
+      userId: authStore.userId,
+      budgetsCount: budgetStore.budgets.length,
+      groupsCount: budgetStore.groups.length
     })
 
-    debugInfo.value = `📊 ${budgetStore.budgets.length} budgets, ${budgetStore.groups.length} grupos`
-    setTimeout(() => { debugInfo.value = '' }, 3000) // Remove depois de 3s
-  } else {
-    debugInfo.value = '⚠️ Não autenticado'
-    console.log('⚠️ Usuário não autenticado no onMounted')
+    if (authStore.user) {
+      debugInfo.value = `✅ User: ${authStore.user.email}\nCarregando dados...`
+      console.log('✅ Usuário autenticado, carregando dados...', authStore.user.uid)
+
+      await budgetStore.loadBudgets(authStore.user.uid)
+      await budgetStore.loadGroups(authStore.user.uid)
+      await budgetStore.startSharedBudgetsListener(authStore.user.uid)
+
+      console.log('📊 Dados carregados:', {
+        budgets: budgetStore.budgets.length,
+        groups: budgetStore.groups.length
+      })
+
+      debugInfo.value = `📊 ${budgetStore.budgets.length} budgets, ${budgetStore.groups.length} grupos`
+      setTimeout(() => { debugInfo.value = '' }, 3000) // Remove depois de 3s
+    } else {
+      debugInfo.value = '⚠️ Não autenticado'
+      console.log('⚠️ Usuário não autenticado no onMounted')
+    }
+  } catch (error) {
+    handleError(error as Error, 'inicialização do app')
+    debugInfo.value = '❌ Erro na inicialização'
   }
 })
 </script>
 
 <template>
   <div class="app-container">
+    <!-- Error Notification -->
+    <div v-if="errorMessage" class="error-notification">
+      <div class="error-header">
+        <span class="error-icon">❌</span>
+        <span class="error-title">{{ errorMessage }}</span>
+        <button class="error-close" @click="errorMessage = null; errorDetails = null">×</button>
+      </div>
+      <div v-if="errorDetails" class="error-details">
+        <pre>{{ errorDetails }}</pre>
+      </div>
+    </div>
+
     <!-- Debug Info (top center) -->
     <div v-if="debugInfo" class="debug-info">
       {{ debugInfo }}
@@ -623,6 +681,89 @@ body.dark-mode .history-button {
 
 body.dark-mode .history-button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* Error Notification */
+.error-notification {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90%;
+  width: 500px;
+  background-color: #ff5252;
+  color: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.error-header {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  gap: 12px;
+}
+
+.error-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.error-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.error-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 32px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.error-close:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.error-details {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 12px 16px;
+  border-radius: 0 0 12px 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.error-details pre {
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .pt-8 {
