@@ -11,13 +11,11 @@
                     <div class="modal-body">
                         <div class="add-group-section">
                             <h3>Criar Novo Grupo</h3>
-                            <div class="input-row">
+                            <div class="input-group">
                                 <input v-model="newGroupName" type="text"
                                     placeholder="Ex: Contas Fixas, Lazer, Alimentação..."
                                     @keyup.enter="handleAddGroup" />
-                                <div class="color-picker-inline">
-                                    <input v-model="newGroupColor" type="color" class="color-input" />
-                                </div>
+                                <ColorPicker v-model="newGroupColor" />
                                 <button class="add-button" @click="handleAddGroup" :disabled="!newGroupName">
                                     Criar
                                 </button>
@@ -94,6 +92,7 @@
 import { ref } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import type { BudgetGroup } from '@/types/budget'
+import ColorPicker from './ColorPicker.vue'
 
 const props = defineProps<{
     show: boolean
@@ -113,7 +112,25 @@ const editColor = ref('')
 const handleAddGroup = async () => {
     if (!newGroupName.value) return
 
-    await budgetStore.addGroup(newGroupName.value, newGroupColor.value)
+    // Verificar se já existe grupo com mesmo nome
+    const nameExists = budgetStore.groups.some(
+        g => g.name.toLowerCase() === newGroupName.value.toLowerCase()
+    )
+
+    if (nameExists) {
+        alert(`❌ Já existe um grupo chamado "${newGroupName.value}"`)
+        return
+    }
+
+    console.log('🔵 GroupsModal: handleAddGroup iniciado', { name: newGroupName.value, color: newGroupColor.value })
+
+    try {
+        await budgetStore.addGroup(newGroupName.value, newGroupColor.value)
+        console.log('✅ GroupsModal: addGroup concluído com sucesso')
+    } catch (error) {
+        console.error('❌ GroupsModal: Erro ao criar grupo:', error)
+    }
+
     newGroupName.value = ''
     newGroupColor.value = '#4CAF50'
 }
@@ -228,39 +245,25 @@ const getBudgetCount = (groupId: string) => {
     margin: 0 0 12px 0;
 }
 
-.input-row {
+.input-group {
     display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 12px;
 }
 
-.input-row input[type="text"] {
-    flex: 1;
+.input-group input[type="text"] {
+    width: 100%;
     padding: 12px;
     font-size: 14px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
     transition: border-color 0.3s;
+    box-sizing: border-box;
 }
 
-.input-row input[type="text"]:focus {
+.input-group input[type="text"]:focus {
     outline: none;
     border-color: #4a90e2;
-}
-
-.color-picker-inline {
-    display: flex;
-    align-items: center;
-}
-
-.color-input {
-    width: 50px;
-    height: 44px;
-    border: 2px solid #e0e0e0;
-    border-radius: 8px;
-    cursor: pointer;
-    padding: 4px;
 }
 
 .add-button {

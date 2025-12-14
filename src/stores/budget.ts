@@ -117,29 +117,56 @@ export const useBudgetStore = defineStore('budget', () => {
     const addBudget = async (name: string, totalValue: number, color?: string, groupId?: string) => {
         const authStore = useAuthStore()
 
-        const newBudget = {
+        console.log('💰 addBudget chamado:', { name, totalValue, color, groupId })
+        console.log('👤 Auth status:', {
+            isAuthenticated: authStore.isAuthenticated,
+            userId: authStore.userId,
+            user: authStore.user
+        })
+
+        const newBudget: any = {
             name,
             totalValue,
             spentValue: 0,
             color: color || colors[budgets.value.length % colors.length] || '#4CAF50',
             createdAt: new Date().toISOString(),
             ownerId: authStore.userId || 'local',
-            groupId: groupId || undefined,
             sharedWith: []
         }
 
+        // Só adiciona groupId se tiver valor (Firestore não aceita undefined)
+        if (groupId) {
+            newBudget.groupId = groupId
+        }
+
+        console.log('📦 Budget a ser criado:', newBudget)
+
         if (authStore.userId) {
             try {
+                console.log('🔥 Tentando salvar no Firestore...')
                 const budgetsRef = getBudgetsCollection(authStore.userId)
-                await addDoc(budgetsRef, newBudget)
+
+                // Adiciona timeout de 10 segundos
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Firestore timeout')), 10000)
+                )
+
+                const docRef = await Promise.race([
+                    addDoc(budgetsRef, newBudget),
+                    timeoutPromise
+                ]) as any
+
+                console.log('✅ Budget salvo no Firestore com ID:', docRef.id)
                 // O listener atualizará automaticamente a lista
             } catch (error) {
-                console.error('Erro ao adicionar budget:', error)
+                console.error('❌ Erro ao adicionar budget no Firestore:', error)
+                console.error('📝 Detalhes do erro:', JSON.stringify(error, null, 2))
                 // Fallback para localStorage
                 budgets.value.push({ id: Date.now().toString(), ...newBudget })
                 saveToLocalStorage()
             }
         } else {
+            console.log('⚠️ Sem autenticação, salvando localmente')
             // Sem autenticação, salva localmente
             budgets.value.push({ id: Date.now().toString(), ...newBudget })
             saveToLocalStorage()
@@ -284,12 +311,15 @@ export const useBudgetStore = defineStore('budget', () => {
             groupsUnsubscribe()
         }
 
+        console.log('🎧 Iniciando listener de grupos para userId:', userId)
         const groupsRef = getGroupsCollection(userId)
         groupsUnsubscribe = onSnapshot(groupsRef, (snapshot) => {
+            console.log('📢 Listener de grupos disparado! Total:', snapshot.docs.length)
             groups.value = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as BudgetGroup))
+            console.log('📦 Grupos atualizados:', groups.value)
             saveGroupsToLocalStorage()
         })
     }
@@ -309,14 +339,19 @@ export const useBudgetStore = defineStore('budget', () => {
             isExpanded: true
         }
 
+        console.log('🔹 addGroup chamado:', { name, color, userId: authStore.userId })
+
         if (authStore.userId) {
             try {
+                console.log('🔹 Tentando adicionar grupo ao Firebase...')
                 const groupsRef = getGroupsCollection(authStore.userId)
-                await addDoc(groupsRef, newGroup)
+                const docRef = await addDoc(groupsRef, newGroup)
+                console.log('✅ Grupo adicionado ao Firebase com ID:', docRef.id)
             } catch (error) {
-                console.error('Erro ao adicionar grupo:', error)
+                console.error('❌ Erro ao adicionar grupo:', error)
             }
         } else {
+            console.log('🔹 Adicionando grupo localmente (sem autenticação)')
             groups.value.push({ id: Date.now().toString(), ...newGroup })
             saveGroupsToLocalStorage()
         }
@@ -612,10 +647,10 @@ export const useBudgetStore = defineStore('budget', () => {
             ...expense
         }
         pendingExpenses.value.unshift(newExpense)
-        
+
         // Save to localStorage as backup
         localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
-        
+
         console.log('✅ Pending expense added:', newExpense)
     }
 
@@ -624,9 +659,9 @@ export const useBudgetStore = defineStore('budget', () => {
         if (!expense) return
 
         await addExpense(budgetId, expense.amount)
-        
+
         expense.approved = true
-        
+
         // Remove from pending after a short delay
         setTimeout(() => {
             pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)

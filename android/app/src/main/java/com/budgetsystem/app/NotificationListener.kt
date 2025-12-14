@@ -61,18 +61,16 @@ class NotificationListener : NotificationListenerService() {
     }
     
     private fun getServerUrl(): String {
-        // Para dispositivo físico, usa o IP da rede local
+        // Para dispositivo físico conectado via USB, usa o IP da rede local
         // Para emulador, usa 10.0.2.2 (localhost do host)
-        // Tente primeiro com o IP configurado, senão usa o padrão do emulador
         return try {
-            // Você pode configurar o IP do servidor via SharedPreferences ou BuildConfig
-            // Por padrão, tenta o emulador
-            val serverHost = "10.0.2.2" // Altere para o IP do seu computador na rede local se estiver usando dispositivo físico
+            // IP do computador na rede local (atualize se mudar de rede)
+            val serverHost = "192.168.18.16" // IP local do seu computador
             val serverPort = "5173" // Porta do Vite dev server
             "http://$serverHost:$serverPort/api/expenses"
         } catch (e: Exception) {
             Log.e(TAG, "Error getting server URL", e)
-            "http://10.0.2.2:5173/api/expenses"
+            "http://192.168.18.16:5173/api/expenses"
         }
     }
     

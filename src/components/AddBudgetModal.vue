@@ -49,6 +49,7 @@ import { useBudgetStore } from '@/stores/budget'
 
 const props = defineProps<{
     show: boolean
+    preselectedGroupId?: string
 }>()
 
 const emit = defineEmits<{
@@ -88,12 +89,22 @@ watch(() => props.show, (newVal) => {
         budgetName.value = ''
         budgetValue.value = 0
         budgetColor.value = '#4CAF50'
-        selectedGroupId.value = ''
+        selectedGroupId.value = props.preselectedGroupId || ''
     }
 })
 
 const handleSubmit = () => {
     if (budgetName.value && budgetValue.value > 0) {
+        // Verificar se já existe budget com mesmo nome
+        const nameExists = budgetStore.budgets.some(
+            b => b.name.toLowerCase() === budgetName.value.toLowerCase()
+        )
+
+        if (nameExists) {
+            alert(`❌ Já existe um budget chamado "${budgetName.value}"`)
+            return
+        }
+
         emit('submit', budgetName.value, budgetValue.value, budgetColor.value, selectedGroupId.value || undefined)
         close()
     }

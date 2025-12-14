@@ -17,7 +17,8 @@
 
         <Transition name="expand">
             <div v-if="group.isExpanded" class="group-budgets">
-                <BudgetBar v-for="budget in groupBudgets" :key="budget.id" :budget="budget" />
+                <BudgetBar v-for="budget in groupBudgets" :key="budget.id" :budget="budget"
+                    @edit="() => emit('editBudget', budget.id)" @delete="() => emit('deleteBudget', budget.id)" />
                 <div v-if="groupBudgets.length === 0" class="no-budgets">
                     <p>Nenhum budget neste grupo</p>
                 </div>
@@ -36,7 +37,17 @@ const props = defineProps<{
     group: BudgetGroup
 }>()
 
+const emit = defineEmits<{
+    editBudget: [budgetId: string]
+    deleteBudget: [budgetId: string]
+    addBudgetToGroup: [groupId: string]
+}>()
+
 const budgetStore = useBudgetStore()
+
+const handleAddBudgetToGroup = () => {
+    emit('addBudgetToGroup', props.group.id)
+}
 
 const groupBudgets = computed(() => {
     return budgetStore.budgets.filter(b => b.groupId === props.group.id)
@@ -138,6 +149,25 @@ const formatCurrency = (value: number) => {
     padding: 30px;
     color: #999;
     font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border-radius: 12px;
+}
+
+.no-budgets:hover {
+    background: #f5f5f5;
+    color: #666;
+}
+
+.no-budgets:active {
+    transform: scale(0.98);
+}
+
+.add-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #4CAF50;
+    font-weight: 500;
 }
 
 .expand-enter-active,

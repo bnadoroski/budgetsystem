@@ -4,7 +4,7 @@
       <div v-if="show" class="modal-overlay" @click="close">
         <div class="modal-content debug-panel" @click.stop>
           <h2>🐛 Debug Panel</h2>
-          
+
           <div class="debug-section">
             <h3>Server Connection</h3>
             <div class="info-row">
@@ -19,6 +19,16 @@
           </div>
 
           <div class="debug-section">
+            <h3>🔥 Firebase Connection Test</h3>
+            <div v-if="firebaseTestResult" class="test-result">
+              <pre>{{ firebaseTestResult }}</pre>
+            </div>
+            <button class="btn-test" @click="runFirebaseTest" :disabled="testingFirebase">
+              {{ testingFirebase ? 'Testing...' : 'Run Firebase Test' }}
+            </button>
+          </div>
+
+          <div class="debug-section">
             <h3>Simulate Notification</h3>
             <form @submit.prevent="sendTestNotification">
               <div class="form-group">
@@ -30,17 +40,17 @@
                   <option value="PicPay">PicPay</option>
                 </select>
               </div>
-              
+
               <div class="form-group">
                 <label>Amount (R$)</label>
                 <input v-model.number="testNotification.amount" type="number" step="0.01" required />
               </div>
-              
+
               <div class="form-group">
                 <label>Description</label>
                 <input v-model="testNotification.description" type="text" required />
               </div>
-              
+
               <div class="form-group">
                 <label>Category</label>
                 <select v-model="testNotification.category">
@@ -55,7 +65,7 @@
                   <option value="Outros">Outros</option>
                 </select>
               </div>
-              
+
               <button type="submit" class="btn-send">Send Test Notification</button>
             </form>
           </div>
@@ -99,6 +109,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { testFirebaseConnection, formatTestResults } from '@/utils/firebaseTest'
 
 const props = defineProps<{
   show: boolean
@@ -111,7 +122,9 @@ const emit = defineEmits<{
 const budgetStore = useBudgetStore()
 
 const connectionStatus = ref<'connected' | 'disconnected' | 'testing'>('disconnected')
-const serverEndpoint = ref('http://localhost:5173/api/expenses')
+const serverEndpoint = ref('http://192.168.18.16:5173/api/expenses')
+const testingFirebase = ref(false)
+const firebaseTestResult = ref('')
 
 const testNotification = ref({
   bank: 'Nubank',
@@ -145,7 +158,7 @@ const addLog = (message: string, type: 'info' | 'success' | 'error' = 'info') =>
 const testConnection = async () => {
   connectionStatus.value = 'testing'
   addLog('Testing connection...', 'info')
-  
+
   try {
     const response = await fetch(serverEndpoint.value, {
       method: 'POST',
@@ -157,7 +170,7 @@ const testConnection = async () => {
         timestamp: Date.now()
       })
     })
-    
+
     if (response.ok) {
       connectionStatus.value = 'connected'
       addLog('Connection successful!', 'success')
@@ -174,7 +187,7 @@ const testConnection = async () => {
 
 const sendTestNotification = async () => {
   addLog('Sending test notification...', 'info')
-  
+
   try {
     const payload = {
       type: 'expense',
@@ -184,7 +197,7 @@ const sendTestNotification = async () => {
       category: testNotification.value.category,
       timestamp: Date.now()
     }
-    
+
     const response = await fetch(serverEndpoint.value, {
       method: 'POST',
       headers: {
@@ -192,11 +205,11 @@ const sendTestNotification = async () => {
       },
       body: JSON.stringify(payload)
     })
-    
+
     if (response.ok) {
       const result = await response.json()
       addLog(`Test notification sent successfully`, 'success')
-      
+
       // Add to pending expenses
       budgetStore.addPendingExpense({
         amount: payload.amount,
@@ -211,6 +224,31 @@ const sendTestNotification = async () => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     addLog(`Error: ${errorMessage}`, 'error')
+  }
+}
+
+const runFirebaseTest = async () => {
+  testingFirebase.value = true
+  firebaseTestResult.value = 'Testing...'
+  addLog('Running Firebase connection test...', 'info')
+
+  try {
+    const results = await testFirebaseConnection()
+    firebaseTestResult.value = formatTestResults(results)
+
+    if (results.firestore && results.write) {
+      addLog('✅ Firebase fully operational', 'success')
+    } else if (results.auth && results.read) {
+      addLog('⚠️ Firebase connected but writes failing', 'error')
+    } else {
+      addLog('❌ Firebase connection issues detected', 'error')
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    firebaseTestResult.value = `Test failed: ${errorMessage}`
+    addLog(`Firebase test error: ${errorMessage}`, 'error')
+  } finally {
+    testingFirebase.value = false
   }
 }
 
@@ -303,6 +341,24 @@ h3 {
 .testing {
   color: #FF9800;
   font-weight: 600;
+}
+
+.test-result {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 12px;
+  margin-bottom: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.test-result pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .form-group {

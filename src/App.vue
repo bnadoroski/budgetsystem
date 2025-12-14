@@ -21,9 +21,48 @@ const showGroupsModal = ref(false)
 const showShareModal = ref(false)
 const showHistoryModal = ref(false)
 const showDebugPanel = ref(false)
+const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
+const debugInfo = ref('')
 
 const handleAddBudget = (name: string, value: number, color: string, groupId?: string) => {
   budgetStore.addBudget(name, value, color, groupId)
+  selectedGroupIdForNewBudget.value = undefined
+}
+
+const handleAddBudgetToGroup = (groupId: string) => {
+  if (!authStore.isAuthenticated) {
+    showAuthModal.value = true
+  } else {
+    selectedGroupIdForNewBudget.value = groupId
+    showAddModal.value = true
+  }
+}
+
+const handleEditBudget = (budgetId: string) => {
+  // TODO: Implementar modal de edição
+  console.log('Editar budget:', budgetId)
+}
+
+const handleDeleteBudget = async (budgetId: string) => {
+  if (confirm('Tem certeza que deseja excluir este budget?')) {
+    await budgetStore.deleteBudget(budgetId)
+  }
+}
+
+const handleAddBudgetClick = () => {
+  if (!authStore.isAuthenticated) {
+    showAuthModal.value = true
+  } else {
+    showAddModal.value = true
+  }
+}
+
+const handleGroupsClick = () => {
+  if (!authStore.isAuthenticated) {
+    showAuthModal.value = true
+  } else {
+    showGroupsModal.value = true
+  }
 }
 
 const ungroupedBudgets = computed(() => {
@@ -32,8 +71,9 @@ const ungroupedBudgets = computed(() => {
 
 const handleProfileClick = () => {
   if (authStore.isAuthenticated) {
-    // Mostrar menu de perfil ou logout
-    if (confirm('Deseja fazer logout?')) {
+    // Mostrar menu de perfil ou logout com email
+    const email = authStore.userEmail || 'usuário'
+    if (confirm(`Logado como: ${email}\n\nDeseja fazer logout?`)) {
       authStore.signOut()
     }
   } else {
@@ -45,82 +85,118 @@ const handleProfileClick = () => {
 watch(() => authStore.user, async (newUser, oldUser) => {
   if (newUser && !oldUser) {
     // Usuário acabou de fazer login
+    console.log('🔐 Login detectado, carregando dados do usuário:', newUser.uid)
     await budgetStore.migrateBudgetsToFirestore(newUser.uid)
     await budgetStore.loadBudgets(newUser.uid)
+    await budgetStore.loadGroups(newUser.uid)
+    await budgetStore.startSharedBudgetsListener(newUser.uid)
+    console.log('✅ Dados do usuário carregados')
   } else if (!newUser && oldUser) {
     // Usuário fez logout
+    console.log('🚪 Logout detectado, parando listeners')
     budgetStore.stopBudgetsListener()
+    budgetStore.stopGroupsListener()
   }
 })
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
+  debugInfo.value = '🔄 Iniciando...'
+  console.log('🔄 App.vue onMounted - Iniciando...')
+  console.log('📊 Estado atual:', {
+    isAuthenticated: authStore.isAuthenticated,
+    userId: authStore.userId,
+    budgetsCount: budgetStore.budgets.length,
+    groupsCount: budgetStore.groups.length
+  })
+
   // Checar resultado do redirect do Google
   await authStore.checkRedirectResult()
 
   if (authStore.user) {
+    debugInfo.value = `✅ User: ${authStore.user.email}\nCarregando dados...`
+    console.log('✅ Usuário autenticado, carregando dados...', authStore.user.uid)
+
     await budgetStore.loadBudgets(authStore.user.uid)
     await budgetStore.loadGroups(authStore.user.uid)
     await budgetStore.startSharedBudgetsListener(authStore.user.uid)
+
+    console.log('📊 Dados carregados:', {
+      budgets: budgetStore.budgets.length,
+      groups: budgetStore.groups.length
+    })
+
+    debugInfo.value = `📊 ${budgetStore.budgets.length} budgets, ${budgetStore.groups.length} grupos`
+    setTimeout(() => { debugInfo.value = '' }, 3000) // Remove depois de 3s
+  } else {
+    debugInfo.value = '⚠️ Não autenticado'
+    console.log('⚠️ Usuário não autenticado no onMounted')
   }
 })
 </script>
 
 <template>
   <div class="app-container">
+    <!-- Debug Info (top center) -->
+    <div v-if="debugInfo" class="debug-info">
+      {{ debugInfo }}
+    </div>
+
     <!-- Debug Button (top left) -->
     <button class="debug-button" @click="showDebugPanel = true" title="Debug Panel">
       🐛
     </button>
 
     <!-- History Button -->
-    <button class="history-button" @click="showHistoryModal = true" title="Ver histórico">
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
-        <g fill="none">
-          <path fill="url(#SVGVSdJzcMZ)"
-            d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
-          <path fill="url(#SVGD1CMpKTK)"
-            d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
-          <g filter="url(#SVGJXIjpdIN)">
-            <path fill="url(#SVGL6uCze5T)"
-              d="M15.5 26a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5m11-2.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5M18 31.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5" />
+    <div class="pt-8">
+      <button class="history-button" @click="showHistoryModal = true" title="Ver histórico">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
+          <g fill="none">
+            <path fill="url(#SVGVSdJzcMZ)"
+              d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
+            <path fill="url(#SVGD1CMpKTK)"
+              d="M42 35.75A6.25 6.25 0 0 1 35.75 42h-23.5A6.25 6.25 0 0 1 6 35.75V16l18-1l18 1z" />
+            <g filter="url(#SVGJXIjpdIN)">
+              <path fill="url(#SVGL6uCze5T)"
+                d="M15.5 26a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5m11-2.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5M18 31.5a2.5 2.5 0 1 1-5 0a2.5 2.5 0 0 1 5 0m6 2.5a2.5 2.5 0 1 0 0-5a2.5 2.5 0 0 0 0 5" />
+            </g>
+            <path fill="url(#SVGHrxJFdSI)" d="M12.25 6A6.25 6.25 0 0 0 6 12.25V16h36v-3.75A6.25 6.25 0 0 0 35.75 6z" />
+            <defs>
+              <linearGradient id="SVGVSdJzcMZ" x1="30.5" x2="20.973" y1="45.316" y2="16.104"
+                gradientUnits="userSpaceOnUse">
+                <stop stop-color="#b3e0ff" />
+                <stop offset="1" stop-color="#b3e0ff" />
+              </linearGradient>
+              <linearGradient id="SVGD1CMpKTK" x1="27.857" x2="32.563" y1="26.046" y2="48.229"
+                gradientUnits="userSpaceOnUse">
+                <stop stop-color="#dcf8ff" stop-opacity="0" />
+                <stop offset="1" stop-color="#ff6ce8" stop-opacity="0.7" />
+              </linearGradient>
+              <linearGradient id="SVGL6uCze5T" x1="22" x2="26.043" y1="19.5" y2="45.493" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0078d4" />
+                <stop offset="1" stop-color="#0067bf" />
+              </linearGradient>
+              <linearGradient id="SVGHrxJFdSI" x1="6" x2="36.743" y1="6" y2="-3.926" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0094f0" />
+                <stop offset="1" stop-color="#2764e7" />
+              </linearGradient>
+              <filter id="SVGJXIjpdIN" width="24.667" height="15.667" x="11.667" y="20.333"
+                color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+                <feFlood flood-opacity="0" result="BackgroundImageFix" />
+                <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
+                <feOffset dy=".667" />
+                <feGaussianBlur stdDeviation=".667" />
+                <feColorMatrix values="0 0 0 0 0.1242 0 0 0 0 0.323337 0 0 0 0 0.7958 0 0 0 0.32 0" />
+                <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_378174_9807" />
+                <feBlend in="SourceGraphic" in2="effect1_dropShadow_378174_9807" result="shape" />
+              </filter>
+            </defs>
           </g>
-          <path fill="url(#SVGHrxJFdSI)" d="M12.25 6A6.25 6.25 0 0 0 6 12.25V16h36v-3.75A6.25 6.25 0 0 0 35.75 6z" />
-          <defs>
-            <linearGradient id="SVGVSdJzcMZ" x1="30.5" x2="20.973" y1="45.316" y2="16.104"
-              gradientUnits="userSpaceOnUse">
-              <stop stop-color="#b3e0ff" />
-              <stop offset="1" stop-color="#b3e0ff" />
-            </linearGradient>
-            <linearGradient id="SVGD1CMpKTK" x1="27.857" x2="32.563" y1="26.046" y2="48.229"
-              gradientUnits="userSpaceOnUse">
-              <stop stop-color="#dcf8ff" stop-opacity="0" />
-              <stop offset="1" stop-color="#ff6ce8" stop-opacity="0.7" />
-            </linearGradient>
-            <linearGradient id="SVGL6uCze5T" x1="22" x2="26.043" y1="19.5" y2="45.493" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#0078d4" />
-              <stop offset="1" stop-color="#0067bf" />
-            </linearGradient>
-            <linearGradient id="SVGHrxJFdSI" x1="6" x2="36.743" y1="6" y2="-3.926" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#0094f0" />
-              <stop offset="1" stop-color="#2764e7" />
-            </linearGradient>
-            <filter id="SVGJXIjpdIN" width="24.667" height="15.667" x="11.667" y="20.333"
-              color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
-              <feFlood flood-opacity="0" result="BackgroundImageFix" />
-              <feColorMatrix in="SourceAlpha" result="hardAlpha" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" />
-              <feOffset dy=".667" />
-              <feGaussianBlur stdDeviation=".667" />
-              <feColorMatrix values="0 0 0 0 0.1242 0 0 0 0 0.323337 0 0 0 0 0.7958 0 0 0 0.32 0" />
-              <feBlend in2="BackgroundImageFix" result="effect1_dropShadow_378174_9807" />
-              <feBlend in="SourceGraphic" in2="effect1_dropShadow_378174_9807" result="shape" />
-            </filter>
-          </defs>
-        </g>
-      </svg>
-    </button>
+        </svg>
+      </button>
+    </div>
 
-    <div class="budget-list">
-      <div v-if="budgetStore.budgets.length === 0" class="empty-state">
+    <div class="budget-list pt-8">
+      <div v-if="budgetStore.budgets.length === 0 && budgetStore.groups.length === 0" class="empty-state">
         <div class="empty-state-card">
           <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="1.5">
             <circle cx="12" cy="12" r="10"></circle>
@@ -132,14 +208,16 @@ onMounted(async () => {
       </div>
 
       <!-- Groups -->
-      <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" />
+      <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" @edit-budget="handleEditBudget"
+        @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup" />
 
       <!-- Ungrouped Budgets -->
-      <BudgetBar v-for="budget in ungroupedBudgets" :key="budget.id" :budget="budget" />
+      <BudgetBar v-for="budget in ungroupedBudgets" :key="budget.id" :budget="budget"
+        @edit="() => handleEditBudget(budget.id)" @delete="() => handleDeleteBudget(budget.id)" />
     </div>
 
     <div class="bottom-nav">
-      <button class="nav-button" title="Grupos" @click="showGroupsModal = true">
+      <button class="nav-button" title="Grupos" @click="handleGroupsClick">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
           <g fill="none">
             <path fill="url(#SVGlHpytcfC)"
@@ -197,7 +275,7 @@ onMounted(async () => {
         </svg>
       </button>
 
-      <button class="nav-button add-button" @click="showAddModal = true" title="Adicionar Budget">
+      <button class="nav-button add-button" @click="handleAddBudgetClick" title="Adicionar Budget">
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
           <g fill="none">
             <path fill="url(#SVGau1xsAGW)"
@@ -311,7 +389,8 @@ onMounted(async () => {
       </button>
     </div>
 
-    <AddBudgetModal :show="showAddModal" @close="showAddModal = false" @submit="handleAddBudget" />
+    <AddBudgetModal :show="showAddModal" :preselected-group-id="selectedGroupIdForNewBudget"
+      @close="showAddModal = false; selectedGroupIdForNewBudget = undefined" @submit="handleAddBudget" />
     <AuthModal :show="showAuthModal" @close="showAuthModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
@@ -390,9 +469,39 @@ onMounted(async () => {
   max-width: 300px;
 }
 
+.debug-info {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(76, 175, 80, 0.95);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  white-space: pre-line;
+  text-align: center;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 .debug-button {
   position: absolute;
-  top: 20px;
+  top: 30px;
   left: 20px;
   background: white;
   border: none;
@@ -421,7 +530,7 @@ onMounted(async () => {
 
 .history-button {
   position: absolute;
-  top: 20px;
+  top: 30px;
   right: 20px;
   background: white;
   border: none;
@@ -514,6 +623,10 @@ body.dark-mode .history-button {
 
 body.dark-mode .history-button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.pt-8 {
+  padding-top: 1rem;
 }
 
 @media (min-width: 601px) {
