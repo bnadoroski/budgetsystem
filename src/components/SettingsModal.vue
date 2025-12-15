@@ -93,9 +93,9 @@ const remainingBudget = computed(() => {
     return totalBudgetLimitNumeric.value > 0 ? totalBudgetLimitNumeric.value - totalAllocated.value : 0
 })
 
-const handleSaveLimit = () => {
+const handleSaveLimit = async () => {
     const numericValue = parseFloat(totalBudgetLimit.value.replace('R$ ', '').replace(/\./g, '').replace(',', '.')) || 0
-    budgetStore.setTotalBudgetLimit(numericValue)
+    await budgetStore.setTotalBudgetLimit(numericValue)
     budgetStore.setResetDay(resetDay.value)
     savedLimitFeedback.value = true
     setTimeout(() => {

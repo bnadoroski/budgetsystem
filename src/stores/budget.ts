@@ -97,6 +97,9 @@ export const useBudgetStore = defineStore('budget', () => {
                 ...doc.data()
             } as Budget))
 
+            // Carrega configurações do usuário do Firestore
+            await loadUserSettings(userId)
+
             // Salva atualização no cache
             saveToLocalStorage()
 
@@ -277,10 +280,61 @@ export const useBudgetStore = defineStore('budget', () => {
         darkMode.value = savedDarkMode === 'true'
     }
 
+    // Carrega configurações do usuário do Firestore
+    const loadUserSettings = async (userId: string) => {
+        try {
+            const userSettingsRef = doc(db, 'users', userId, 'settings', 'preferences')
+            const settingsDoc = await getDocs(query(collection(db, 'users', userId, 'settings')))
+
+            if (!settingsDoc.empty) {
+                const settingsData = settingsDoc.docs[0].data()
+                if (settingsData.totalBudgetLimit !== undefined) {
+                    totalBudgetLimit.value = settingsData.totalBudgetLimit
+                    localStorage.setItem('totalBudgetLimit', settingsData.totalBudgetLimit.toString())
+                }
+                if (settingsData.currency) {
+                    currency.value = settingsData.currency
+                    localStorage.setItem('currency', settingsData.currency)
+                }
+                if (settingsData.darkMode !== undefined) {
+                    darkMode.value = settingsData.darkMode
+                    localStorage.setItem('darkModeEnabled', settingsData.darkMode.toString())
+                }
+                if (settingsData.resetDay !== undefined) {
+                    resetDay.value = settingsData.resetDay
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao carregar configurações do usuário:', error)
+        }
+    }
+
+    // Salva configurações do usuário no Firestore
+    const saveUserSettings = async (userId: string) => {
+        try {
+            const settingsRef = doc(db, 'users', userId, 'settings', 'preferences')
+            await setDoc(settingsRef, {
+                totalBudgetLimit: totalBudgetLimit.value,
+                currency: currency.value,
+                darkMode: darkMode.value,
+                resetDay: resetDay.value,
+                updatedAt: new Date().toISOString()
+            })
+        } catch (error) {
+            console.error('Erro ao salvar configurações do usuário:', error)
+        }
+    }
+
     // Define ou atualiza o limite total de orçamento
-    const setTotalBudgetLimit = (limit: number) => {
+    const setTotalBudgetLimit = async (limit: number) => {
+        const authStore = useAuthStore()
         totalBudgetLimit.value = limit
         localStorage.setItem('totalBudgetLimit', limit.toString())
+
+        // Salva no Firestore se estiver autenticado
+        if (authStore.userId) {
+            await saveUserSettings(authStore.userId)
+        }
     }
 
     // === GROUPS MANAGEMENT ===
@@ -722,6 +776,8 @@ export const useBudgetStore = defineStore('budget', () => {
         percentage,
         migrateBudgetsToFirestore,
         setTotalBudgetLimit,
+        loadUserSettings,
+        saveUserSettings,
         clearLocalData,
         // Groups
         loadGroups,
