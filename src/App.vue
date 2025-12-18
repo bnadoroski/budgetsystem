@@ -275,6 +275,51 @@ const handleProfileLogout = () => {
   authStore.signOut()
 }
 
+// Drag & Drop handlers para área sem grupo
+const isUngroupedAreaDragOver = ref(false)
+const ungroupedDragCounter = ref(0)
+
+const handleUngroupedDragOver = (event: DragEvent) => {
+  event.preventDefault()
+  isUngroupedAreaDragOver.value = true
+}
+
+const handleUngroupedDragEnter = (event: DragEvent) => {
+  event.preventDefault()
+  ungroupedDragCounter.value++
+  isUngroupedAreaDragOver.value = true
+}
+
+const handleUngroupedDragLeave = () => {
+  ungroupedDragCounter.value--
+  if (ungroupedDragCounter.value === 0) {
+    isUngroupedAreaDragOver.value = false
+  }
+}
+
+const handleUngroupedDrop = async (event: DragEvent) => {
+  event.preventDefault()
+  ungroupedDragCounter.value = 0
+  isUngroupedAreaDragOver.value = false
+
+  let budgetId = event.dataTransfer?.getData('budgetId')
+  if (!budgetId) {
+    budgetId = event.dataTransfer?.getData('text/plain')
+  }
+
+  console.log('🎯 Drop na área sem grupo - budgetId:', budgetId)
+
+  if (budgetId) {
+    try {
+      // Move para "sem grupo" (groupId = undefined)
+      await budgetStore.moveBudgetToGroup(budgetId, undefined)
+      console.log('✅ Budget removido do grupo com sucesso')
+    } catch (error) {
+      console.error('❌ Erro ao remover budget do grupo:', error)
+    }
+  }
+}
+
 const handlePendingExpensesClick = async () => {
   // Verifica se tem permissão
   const permissionResult = await NotificationPlugin.checkPermission()
@@ -562,13 +607,20 @@ onUnmounted(() => {
       <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" @edit-budget="handleEditBudget"
         @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup" />
 
-      <!-- Ungrouped Budgets (com agregação) -->
-      <template v-for="item in aggregatedUngroupedBudgets"
-        :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
-        <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
-          @delete="() => handleDeleteBudget(item.budget.id)" />
-        <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)" />
-      </template>
+      <!-- Ungrouped Budgets (com agregação) - Drop Zone -->
+      <div class="ungrouped-drop-zone" :class="{ 'drag-over': isUngroupedAreaDragOver }"
+        @dragover="handleUngroupedDragOver" @dragenter="handleUngroupedDragEnter" @dragleave="handleUngroupedDragLeave"
+        @drop="handleUngroupedDrop">
+        <div v-if="ungroupedBudgets.length === 0 && isUngroupedAreaDragOver" class="drop-hint">
+          Solte aqui para remover do grupo
+        </div>
+        <template v-for="item in aggregatedUngroupedBudgets"
+          :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
+          <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
+            @delete="() => handleDeleteBudget(item.budget.id)" />
+          <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)" />
+        </template>
+      </div>
     </div>
 
     <!-- Daily Budget Card -->
@@ -843,6 +895,28 @@ onUnmounted(() => {
   font-size: 14px;
   line-height: 1.6;
   max-width: 300px;
+}
+
+.ungrouped-drop-zone {
+  min-height: 60px;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  padding: 10px;
+  margin-top: 10px;
+}
+
+.ungrouped-drop-zone.drag-over {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.15), rgba(16, 185, 129, 0.15));
+  border: 2px dashed rgba(16, 185, 129, 0.5);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+.drop-hint {
+  text-align: center;
+  padding: 20px;
+  color: #10b981;
+  font-weight: 500;
+  font-size: 14px;
 }
 
 .debug-info {
