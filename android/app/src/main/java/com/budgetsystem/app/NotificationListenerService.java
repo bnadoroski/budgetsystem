@@ -79,7 +79,7 @@ public class NotificationListenerService extends android.service.notification.No
 
             // Extrai valor monetário - padrão com r minúsculo (fullText está em toLowerCase)
             // Padrão: r$ 10,00 ou r$ 10 ou r$ 1.234,56
-            Pattern pattern = Pattern.compile("r\\$\\s*([0-9]+(?:\\.[0-9]{3})*(?:,[0-9]{1,2})?)");
+            Pattern pattern = Pattern.compile("r\\$\\s*([0-9]+(?:\\.[0-9]{3})*,[0-9]{2})");
             Matcher matcher = pattern.matcher(fullText);
             
             double amount = 0.0;

@@ -13,7 +13,7 @@
                             @touchend="handleTouchEnd(expense)" @mousedown="handleMouseDown($event, expense)">
                             <!-- Ação de fundo quando arrasta -->
                             <div class="swipe-action-left" v-if="swipeX < -50">
-                                <span>✏️ Editar</span>
+                                <span>❌ Rejeitar</span>
                             </div>
                             <div class="swipe-action-right" v-if="swipeX > 50">
                                 <span>✅ Aprovar</span>
@@ -35,22 +35,14 @@
                                 <div class="expense-suggestion">
                                     <span class="suggestion-label">Sugerido:</span>
                                     <span class="suggestion-budget">{{ getSuggestedBudget(expense) }}</span>
-                                </div>
-
-                                <div class="expense-actions">
-                                    <button class="btn-approve" @click="approveExpense(expense)">
-                                        ✅ Aprovar
-                                    </button>
-                                    <button class="btn-edit" @click="editExpense(expense)">
-                                        ✏️ Editar
-                                    </button>
-                                    <button class="btn-reject" @click="rejectExpense(expense)">
-                                        ❌ Rejeitar
+                                    <button class="btn-choose-budget" @click="editExpense(expense)"
+                                        title="Escolher budget">
+                                        ✏️
                                     </button>
                                 </div>
 
                                 <div class="swipe-hint">
-                                    👉 Arraste → para aprovar | ← para editar
+                                    👉 Arraste → para aprovar | ← para rejeitar
                                 </div>
                             </div>
                         </div>
@@ -61,7 +53,7 @@
 
                 <!-- Modal de edição de budget -->
                 <Transition name="modal">
-                    <div v-if="editingExpense" class="modal-overlay" @click="cancelEdit">
+                    <div v-if="editingExpense" class="modal-overlay edit-overlay" @click="cancelEdit">
                         <div class="edit-modal" @click.stop>
                             <h3>✏️ Escolher Budget</h3>
 
@@ -106,6 +98,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     close: []
+    openAddBudget: [expense: PendingExpense]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -165,8 +158,8 @@ const handleTouchEnd = (expense: PendingExpense) => {
         // Arraste para direita = aprovar
         approveExpense(expense)
     } else if (swipeX.value < -100) {
-        // Arraste para esquerda = editar
-        editExpense(expense)
+        // Arraste para esquerda = rejeitar
+        rejectExpense(expense)
     }
 
     // Reset
@@ -240,10 +233,12 @@ const selectBudget = async (budgetName: string) => {
 }
 
 const createNewBudget = () => {
-    // Fecha modal de edição e abre modal de criar budget
-    editingExpense.value = null
-    emit('close')
-    // Aqui você pode emitir evento para abrir AddBudgetModal
+    // Emite evento para que o App.vue abra a modal de criar budget
+    // e mantenha a referência da despesa pendente
+    if (editingExpense.value) {
+        emit('openAddBudget', editingExpense.value)
+        editingExpense.value = null
+    }
 }
 
 const rejectExpense = (expense: PendingExpense) => {
@@ -272,8 +267,12 @@ const close = () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: 2000;
     padding: 16px;
+}
+
+.edit-overlay {
+    z-index: 2100;
 }
 
 .modal-content {
@@ -334,7 +333,7 @@ h2 {
 
 .swipe-action-left {
     right: 100%;
-    background: #FF9800;
+    background: #f44336;
     border-radius: 12px 0 0 12px;
 }
 
@@ -387,51 +386,34 @@ h2 {
     border-radius: 8px;
     font-size: 13px;
     margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .suggestion-label {
     color: #666;
-    margin-right: 8px;
 }
 
 .suggestion-budget {
     font-weight: 600;
     color: #2196F3;
-}
-
-.expense-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.expense-actions button {
     flex: 1;
-    padding: 8px;
+}
+
+.btn-choose-budget {
+    padding: 4px 8px;
+    background: #2196F3;
+    color: white;
     border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
+    border-radius: 6px;
+    font-size: 14px;
     cursor: pointer;
-    transition: opacity 0.2s;
+    transition: background 0.2s;
 }
 
-.expense-actions button:hover {
-    opacity: 0.8;
-}
-
-.btn-approve {
-    background: #4CAF50;
-    color: white;
-}
-
-.btn-edit {
-    background: #FF9800;
-    color: white;
-}
-
-.btn-reject {
-    background: #f44336;
-    color: white;
+.btn-choose-budget:hover {
+    background: #1976D2;
 }
 
 .swipe-hint {

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Budget, BudgetGroup, BudgetHistory } from '@/types/budget'
+import type { Budget, BudgetGroup, BudgetHistory, ShareInvite } from '@/types/budget'
 import { db } from '@/config/firebase'
 import {
     collection,
@@ -15,7 +15,8 @@ import {
     type Unsubscribe,
     setDoc,
     orderBy,
-    limit
+    limit,
+    serverTimestamp
 } from 'firebase/firestore'
 import { useAuthStore } from './auth'
 
@@ -34,6 +35,7 @@ export const useBudgetStore = defineStore('budget', () => {
     const groups = ref<BudgetGroup[]>([])
     const history = ref<BudgetHistory[]>([])
     const pendingExpenses = ref<PendingExpense[]>([])
+    const shareInvites = ref<ShareInvite[]>([])
     const colors = ['#4CAF50', '#9C27B0', '#CDDC39', '#FF9800', '#2196F3', '#E91E63']
     const loading = ref(false)
     const totalBudgetLimit = ref<number>(0)
@@ -43,6 +45,7 @@ export const useBudgetStore = defineStore('budget', () => {
     let unsubscribe: Unsubscribe | null = null
     let groupsUnsubscribe: Unsubscribe | null = null
     let sharedUnsubscribe: Unsubscribe | null = null
+    let invitesUnsubscribe: Unsubscribe | null = null
 
     // Referência da coleção de budgets
     const getBudgetsCollection = (userId: string) => {
@@ -99,6 +102,13 @@ export const useBudgetStore = defineStore('budget', () => {
 
             // Carrega configurações do usuário do Firestore
             await loadUserSettings(userId)
+
+            // Migra totalBudgetLimit do localStorage para Firestore se necessário
+            const localLimit = localStorage.getItem('totalBudgetLimit')
+            if (localLimit && totalBudgetLimit.value === 0) {
+                totalBudgetLimit.value = parseFloat(localLimit)
+                await saveUserSettings(userId)
+            }
 
             // Salva atualização no cache
             saveToLocalStorage()
@@ -286,7 +296,7 @@ export const useBudgetStore = defineStore('budget', () => {
             const userSettingsRef = doc(db, 'users', userId, 'settings', 'preferences')
             const settingsDoc = await getDocs(query(collection(db, 'users', userId, 'settings')))
 
-            if (!settingsDoc.empty) {
+            if (!settingsDoc.empty && settingsDoc.docs[0]) {
                 const settingsData = settingsDoc.docs[0].data()
                 if (settingsData.totalBudgetLimit !== undefined) {
                     totalBudgetLimit.value = settingsData.totalBudgetLimit
@@ -494,20 +504,43 @@ export const useBudgetStore = defineStore('budget', () => {
         if (!authStore.userId) return
 
         try {
-            // Buscar usuário pelo email
-            const usersQuery = query(
-                collection(db, 'users'),
-                where('email', '==', targetUserEmail)
-            )
-            const usersSnapshot = await getDocs(usersQuery)
+            // Normalizar email: remover espaços e converter para lowercase
+            const normalizedEmail = targetUserEmail.trim().toLowerCase()
 
-            if (usersSnapshot.empty) {
-                throw new Error('Usuário não encontrado')
+            // Buscar todos os documentos de usuário que tenham email
+            const usersCollectionRef = collection(db, 'users')
+            const allUsersSnapshot = await getDocs(usersCollectionRef)
+
+            let targetUserId: string | null = null
+
+            // Procura manualmente pelo usuário com o email correto
+            for (const userDoc of allUsersSnapshot.docs) {
+                const userData = userDoc.data()
+                // Normalizar o email do documento também
+                const docEmail = userData.email?.trim().toLowerCase()
+                // Verifica se o email do documento corresponde ao email buscado
+                if (docEmail === normalizedEmail) {
+                    targetUserId = userDoc.id
+                    break
+                }
             }
 
-            const targetUserId = usersSnapshot.docs[0]?.id
+            // Se não encontrou, tenta buscar diretamente pelo ID se o email for na verdade um ID
             if (!targetUserId) {
-                throw new Error('Erro ao obter ID do usuário')
+                // Tenta buscar na coleção users por query where com email normalizado
+                const usersQuery = query(
+                    usersCollectionRef,
+                    where('email', '==', normalizedEmail)
+                )
+                const usersSnapshot = await getDocs(usersQuery)
+
+                if (!usersSnapshot.empty && usersSnapshot.docs[0]) {
+                    targetUserId = usersSnapshot.docs[0].id
+                }
+            }
+
+            if (!targetUserId) {
+                throw new Error('Usuário não encontrado. Verifique se o email está correto.')
             }
 
             const budget = budgets.value.find(b => b.id === budgetId)
@@ -646,8 +679,7 @@ export const useBudgetStore = defineStore('budget', () => {
             const historyRef = collection(db, 'users', authStore.userId, 'budgetHistory')
             const q = query(
                 historyRef,
-                where('month', '==', targetMonth),
-                orderBy('closedAt', 'desc')
+                where('month', '==', targetMonth)
             )
 
             const snapshot = await getDocs(q)
@@ -655,6 +687,13 @@ export const useBudgetStore = defineStore('budget', () => {
                 id: doc.id,
                 ...doc.data()
             } as BudgetHistory))
+
+            // Ordena localmente por closedAt em ordem decrescente
+            history.value.sort((a, b) => {
+                const dateA = a.closedAt instanceof Date ? a.closedAt : new Date(a.closedAt)
+                const dateB = b.closedAt instanceof Date ? b.closedAt : new Date(b.closedAt)
+                return dateB.getTime() - dateA.getTime()
+            })
 
             return history.value
         } catch (error) {
@@ -756,11 +795,225 @@ export const useBudgetStore = defineStore('budget', () => {
         pendingExpenses.value = []
     }
 
+    // Mock data para testar sistema de convites de compartilhamento
+    const addMockShareInvite = async (targetUserEmail: string) => {
+        try {
+            // Normalizar email
+            const normalizedEmail = targetUserEmail.trim().toLowerCase()
+
+            // Criar um convite mock como se alguém tivesse enviado
+            const mockInvite = {
+                fromUserId: 'mock-sender-id',
+                fromUserEmail: 'teste@gmail.com',
+                toUserEmail: normalizedEmail,
+                budgetIds: ['mock-budget-1', 'mock-budget-2', 'mock-budget-3'],
+                totalBudgetLimit: 5000,
+                status: 'pending' as const,
+                createdAt: serverTimestamp()
+            }
+
+            // Adicionar o convite ao Firestore
+            const inviteRef = await addDoc(collection(db, 'shareInvites'), mockInvite)
+
+            console.log('✅ Mock de convite criado com sucesso!', inviteRef.id)
+            console.log('📧 De:', mockInvite.fromUserEmail)
+            console.log('📧 Para:', mockInvite.toUserEmail)
+            console.log('📦 Budgets:', mockInvite.budgetIds.length)
+        } catch (error) {
+            console.error('❌ Erro ao criar mock de convite:', error)
+        }
+    }
+
+    // === SISTEMA DE CONVITES ===
+
+    // Listener para convites pendentes
+    const startInvitesListener = (userEmail: string) => {
+        if (invitesUnsubscribe) {
+            invitesUnsubscribe()
+        }
+
+        const normalizedEmail = userEmail.trim().toLowerCase()
+        const invitesQuery = query(
+            collection(db, 'shareInvites'),
+            where('toUserEmail', '==', normalizedEmail),
+            where('status', '==', 'pending')
+        )
+
+        invitesUnsubscribe = onSnapshot(invitesQuery, (snapshot) => {
+            shareInvites.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt?.toDate() || new Date(),
+                respondedAt: doc.data().respondedAt?.toDate()
+            })) as ShareInvite[]
+        })
+    }
+
+    const stopInvitesListener = () => {
+        if (invitesUnsubscribe) {
+            invitesUnsubscribe()
+            invitesUnsubscribe = null
+        }
+    }
+
+    // Enviar convite de compartilhamento
+    const sendShareInvite = async (targetEmail: string, budgetIds: string[]) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId || !authStore.userEmail) {
+            throw new Error('Usuário não autenticado')
+        }
+
+        const normalizedEmail = targetEmail.trim().toLowerCase()
+
+        try {
+            // Criar convite no Firestore
+            const inviteRef = await addDoc(collection(db, 'shareInvites'), {
+                fromUserId: authStore.userId,
+                fromUserEmail: authStore.userEmail,
+                toUserEmail: normalizedEmail,
+                budgetIds,
+                totalBudgetLimit: totalBudgetLimit.value,
+                status: 'pending',
+                createdAt: serverTimestamp()
+            })
+
+            console.log('Convite enviado:', inviteRef.id)
+            return inviteRef.id
+        } catch (error) {
+            console.error('Erro ao enviar convite:', error)
+            throw error
+        }
+    }
+
+    // Aceitar convite
+    const acceptShareInvite = async (inviteId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const invite = shareInvites.value.find(i => i.id === inviteId)
+            if (!invite) throw new Error('Convite não encontrado')
+
+            // O fromUserId já está no convite, não precisa buscar
+            const senderId = invite.fromUserId
+            if (!senderId) {
+                throw new Error('ID do remetente não encontrado no convite')
+            }
+
+            // Para cada budget do convite, adicionar o usuário atual ao sharedWith
+            for (const budgetId of invite.budgetIds) {
+                // Buscar o budget original
+                const budgetRef = doc(db, 'users', senderId, 'budgets', budgetId)
+                const budgetDoc = await getDocs(query(collection(db, 'users', senderId, 'budgets')))
+
+                const budgetData = budgetDoc.docs.find(d => d.id === budgetId)?.data()
+                if (budgetData) {
+                    const currentSharedWith = budgetData.sharedWith || []
+                    if (!currentSharedWith.includes(authStore.userId)) {
+                        await updateDoc(budgetRef, {
+                            sharedWith: [...currentSharedWith, authStore.userId]
+                        })
+
+                        // Também atualizar no sharedBudgets
+                        const sharedBudgetRef = doc(db, 'sharedBudgets', budgetId)
+                        await setDoc(sharedBudgetRef, {
+                            ...budgetData,
+                            id: budgetId,
+                            sharedWith: [...currentSharedWith, authStore.userId],
+                            ownerId: senderId,
+                            ownerEmail: invite.fromUserEmail
+                        }, { merge: true })
+                    }
+                }
+            }
+
+            // Atualizar status do convite
+            await updateDoc(doc(db, 'shareInvites', inviteId), {
+                status: 'accepted',
+                respondedAt: serverTimestamp()
+            })
+
+            console.log('Convite aceito com sucesso')
+        } catch (error) {
+            console.error('Erro ao aceitar convite:', error)
+            throw error
+        }
+    }
+
+    // Recusar convite
+    const rejectShareInvite = async (inviteId: string) => {
+        try {
+            await updateDoc(doc(db, 'shareInvites', inviteId), {
+                status: 'rejected',
+                respondedAt: serverTimestamp()
+            })
+            console.log('Convite recusado')
+        } catch (error) {
+            console.error('Erro ao recusar convite:', error)
+            throw error
+        }
+    }
+
+    // Mover budget para grupo (drag & drop)
+    const moveBudgetToGroup = async (budgetId: string, groupId: string | undefined) => {
+        await updateBudget(budgetId, { groupId })
+    }
+
+    // Atualizar budgets compartilhados (adicionar/remover budgets de um compartilhamento existente)
+    const updateSharedBudgets = async (budgetIds: string[]) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId || !authStore.userEmail) {
+            throw new Error('Usuário não autenticado')
+        }
+
+        try {
+            // Buscar convite aceito onde eu sou o remetente
+            const myAcceptedInvite = shareInvites.value.find(invite =>
+                invite.fromUserId === authStore.userId && invite.status === 'accepted'
+            )
+
+            if (!myAcceptedInvite) {
+                throw new Error('Nenhum compartilhamento ativo encontrado')
+            }
+
+            // Atualizar o convite com novos budgetIds
+            await updateDoc(doc(db, 'shareInvites', myAcceptedInvite.id), {
+                budgetIds
+            })
+
+            // Atualizar sharedBudgets collection
+            // Remover budgets que não estão mais na lista
+            const removedBudgetIds = myAcceptedInvite.budgetIds.filter(id => !budgetIds.includes(id))
+            for (const budgetId of removedBudgetIds) {
+                await deleteDoc(doc(db, 'sharedBudgets', budgetId))
+            }
+
+            // Adicionar novos budgets
+            const newBudgetIds = budgetIds.filter(id => !myAcceptedInvite.budgetIds.includes(id))
+            for (const budgetId of newBudgetIds) {
+                const budget = budgets.value.find(b => b.id === budgetId)
+                if (budget) {
+                    await setDoc(doc(db, 'sharedBudgets', budgetId), {
+                        ...budget,
+                        ownerId: authStore.userId,
+                        ownerEmail: authStore.userEmail
+                    })
+                }
+            }
+
+            console.log('Compartilhamento atualizado com sucesso')
+        } catch (error) {
+            console.error('Erro ao atualizar compartilhamento:', error)
+            throw error
+        }
+    }
+
     return {
         budgets,
         groups,
         history,
         pendingExpenses,
+        shareInvites,
         loading,
         totalBudgetLimit,
         currency,
@@ -786,10 +1039,18 @@ export const useBudgetStore = defineStore('budget', () => {
         deleteGroup,
         toggleGroupExpansion,
         stopGroupsListener,
+        moveBudgetToGroup,
         // Sharing
         startSharedBudgetsListener,
         shareBudgetWithUser,
         unshareBudget,
+        // Share Invites
+        startInvitesListener,
+        stopInvitesListener,
+        sendShareInvite,
+        acceptShareInvite,
+        rejectShareInvite,
+        updateSharedBudgets,
         // Monthly History
         loadHistory,
         setResetDay,
@@ -799,6 +1060,8 @@ export const useBudgetStore = defineStore('budget', () => {
         addPendingExpense,
         approvePendingExpense,
         rejectPendingExpense,
-        removePendingExpense
+        removePendingExpense,
+        // Mock data
+        addMockShareInvite
     }
 })

@@ -57,7 +57,7 @@
                             </div>
                             <div class="item-values">
                                 <span>{{ formatCurrency(item.spentValue) }} / {{ formatCurrency(item.totalValue)
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="progress-bar">
                                 <div class="progress-fill" :style="{
@@ -133,7 +133,15 @@ const darkenColor = (color: string) => {
 watch(() => props.show, async (newVal) => {
     if (newVal) {
         loading.value = true
-        historyItems.value = await budgetStore.loadHistory(1) || []
+
+        // Se já tem dados no store (mock ou reais), usa eles
+        if (budgetStore.history.length > 0) {
+            historyItems.value = budgetStore.history
+        } else {
+            // Senão, tenta carregar do Firebase
+            historyItems.value = await budgetStore.loadHistory(1) || []
+        }
+
         loading.value = false
     }
 })

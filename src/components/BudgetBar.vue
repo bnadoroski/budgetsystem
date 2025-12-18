@@ -1,9 +1,11 @@
 <template>
-    <div class="budget-bar-container">
-        <div class="budget-bar" @click="handleClick" @touchstart="longPress.onTouchStart"
-            @touchend="longPress.onTouchEnd" @touchmove="longPress.onTouchMove">
-            <div class="budget-label">{{ budget.name }}</div>
-            <div class="budget-progress">
+    <div class="budget-bar-container" :class="{ 'is-dragging': isDragging }">
+        <div class="budget-bar" @click="handleClick">
+            <div class="budget-label" :class="{ 'overbudget': percentage >= 100 }" draggable="true"
+                @dragstart="handleDragStart" @dragend="handleDragEnd" @touchstart.stop @touchmove.stop @touchend.stop>{{
+                    budget.name }}</div>
+            <div class="budget-progress" @touchstart="longPress.onTouchStart" @touchend="longPress.onTouchEnd"
+                @touchmove="longPress.onTouchMove">
                 <div class="budget-fill" :style="{
                     width: `${percentage}%`,
                     background: `linear-gradient(to right, ${darkenColor(budget.color)}, ${budget.color})`
@@ -18,29 +20,42 @@
             </div>
         </div>
 
-        <!-- Menu de contexto -->
-        <Transition name="context-menu">
-            <div v-if="showContextMenu" class="context-menu" @click.stop>
-                <button class="context-btn edit" @click="handleEdit">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                    Editar
-                </button>
-                <button class="context-btn delete" @click="handleDelete">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                    Excluir
-                </button>
-                <button class="context-btn cancel" @click="showContextMenu = false">Cancelar</button>
-            </div>
-        </Transition>
+        <!-- Menu de contexto usando Teleport para escapar do stacking context -->
+        <Teleport to="body">
+            <Transition name="context-menu">
+                <div v-if="showContextMenu" class="context-menu" @click.stop>
+                    <button class="context-btn edit" @click="handleEdit">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        Editar
+                    </button>
+                    <button class="context-btn reset" @click="handleReset">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                        </svg>
+                        Resetar
+                    </button>
+                    <button class="context-btn delete" @click="handleDelete">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
+                            </path>
+                        </svg>
+                        Excluir
+                    </button>
+                    <button class="context-btn cancel" @click="showContextMenu = false">Cancelar</button>
+                </div>
+            </Transition>
 
-        <!-- Overlay -->
-        <div v-if="showContextMenu" class="overlay" @click="showContextMenu = false"></div>
+            <!-- Overlay -->
+            <div v-if="showContextMenu" class="overlay" @click="showContextMenu = false"></div>
+        </Teleport>
     </div>
 </template>
 
@@ -62,6 +77,7 @@ const emit = defineEmits<{
 const budgetStore = useBudgetStore()
 const displayMode = ref<DisplayMode>('percentage')
 const showContextMenu = ref(false)
+const isDragging = ref(false)
 
 const longPress = useLongPress(() => {
     showContextMenu.value = true
@@ -82,6 +98,13 @@ const toggleDisplayMode = () => {
 const handleEdit = () => {
     showContextMenu.value = false
     emit('edit')
+}
+
+const handleReset = async () => {
+    if (confirm(`Resetar o budget "${props.budget.name}" para R$ 0,00?`)) {
+        await budgetStore.updateBudget(props.budget.id, { spentValue: 0 })
+        showContextMenu.value = false
+    }
 }
 
 const handleDelete = () => {
@@ -116,11 +139,34 @@ const darkenColor = (color: string) => {
     // Converte de volta para hex
     return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`
 }
+
+const handleDragStart = (event: DragEvent) => {
+    isDragging.value = true
+    console.log('DragStart - budgetId:', props.budget.id, 'budget:', props.budget)
+    if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('budgetId', props.budget.id)
+        event.dataTransfer.setData('text/plain', props.budget.id) // Fallback
+        console.log('setData chamado com budgetId:', props.budget.id)
+        // Feedback visual durante o drag
+        event.dataTransfer.dropEffect = 'move'
+    }
+}
+
+const handleDragEnd = () => {
+    isDragging.value = false
+}
 </script>
 
 <style scoped>
 .budget-bar-container {
     position: relative;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.budget-bar-container.is-dragging {
+    opacity: 0.5;
+    transform: scale(0.98);
 }
 
 .budget-bar {
@@ -136,10 +182,33 @@ const darkenColor = (color: string) => {
     margin-bottom: 8px;
     font-weight: 500;
     background: rgba(255, 255, 255, 0.85);
-    padding: 6px 12px;
+    padding: 6px 12px 6px 20px;
     border-radius: 8px;
     display: inline-block;
     backdrop-filter: blur(8px);
+    transition: color 0.3s ease, background-color 0.3s ease;
+    cursor: grab;
+    position: relative;
+}
+
+.budget-label:active {
+    cursor: grabbing;
+}
+
+.budget-label::before {
+    content: '⋮⋮';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+    color: #999;
+    letter-spacing: -2px;
+}
+
+.budget-label.overbudget {
+    color: #ff3b3b;
+    font-weight: 600;
 }
 
 .budget-progress {
@@ -188,7 +257,9 @@ const darkenColor = (color: string) => {
     border-radius: 20px 20px 0 0;
     padding: 20px;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
-    z-index: 10001;
+    z-index: 1500;
+    max-width: 600px;
+    margin: 0 auto;
 }
 
 .context-btn {
@@ -209,6 +280,11 @@ const darkenColor = (color: string) => {
 
 .context-btn.edit {
     background: #4CAF50;
+    color: white;
+}
+
+.context-btn.reset {
+    background: #FF9800;
     color: white;
 }
 
@@ -233,7 +309,7 @@ const darkenColor = (color: string) => {
     right: 0;
     bottom: 0;
     background: rgba(0, 0, 0, 0.5);
-    z-index: 10000;
+    z-index: 1400;
 }
 
 /* Animações */

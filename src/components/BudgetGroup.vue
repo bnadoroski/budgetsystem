@@ -19,7 +19,8 @@
         </div>
 
         <Transition name="expand">
-            <div v-if="group.isExpanded" class="group-budgets">
+            <div v-if="group.isExpanded" class="group-budgets" @drop="handleDrop" @dragover.prevent="handleDragOver"
+                @dragenter.prevent="handleDragEnter" @dragleave="handleDragLeave" :class="{ 'drag-over': isDragOver }">
                 <button type="button" class="add-budget-btn-inside" @click.stop="handleAddBudgetToGroup"
                     title="Adicionar budget neste grupo">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -40,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import type { BudgetGroup } from '@/types/budget'
 import BudgetBar from './BudgetBar.vue'
@@ -56,6 +57,8 @@ const emit = defineEmits<{
 }>()
 
 const budgetStore = useBudgetStore()
+const isDragOver = ref(false)
+const dragCounter = ref(0)
 
 const handleAddBudgetToGroup = () => {
     emit('addBudgetToGroup', props.group.id)
@@ -80,6 +83,54 @@ const formatCurrency = (value: number) => {
         style: 'currency',
         currency: currencyCode
     }).format(value)
+}
+
+const handleDragOver = (event: DragEvent) => {
+    event.preventDefault()
+    isDragOver.value = true
+}
+
+const handleDragEnter = (event: DragEvent) => {
+    event.preventDefault()
+    dragCounter.value++
+    isDragOver.value = true
+}
+
+const handleDragLeave = (event: DragEvent) => {
+    dragCounter.value--
+    if (dragCounter.value === 0) {
+        isDragOver.value = false
+    }
+}
+
+const handleDrop = async (event: DragEvent) => {
+    event.preventDefault()
+    dragCounter.value = 0
+    isDragOver.value = false
+
+    console.log('🎯 Drop event:', event)
+    console.log('🎯 DataTransfer:', event.dataTransfer)
+    console.log('🎯 DataTransfer types:', event.dataTransfer?.types)
+
+    let budgetId = event.dataTransfer?.getData('budgetId')
+    console.log('🎯 budgetId (custom):', budgetId)
+
+    // Fallback para text/plain
+    if (!budgetId) {
+        budgetId = event.dataTransfer?.getData('text/plain')
+        console.log('🎯 budgetId (text/plain fallback):', budgetId)
+    }
+
+    console.log('🎯 Drop detectado - budgetId:', budgetId, 'groupId:', props.group.id)
+
+    if (budgetId && budgetId !== props.group.id) {
+        try {
+            await budgetStore.moveBudgetToGroup(budgetId, props.group.id)
+            console.log('✅ Budget movido para grupo com sucesso')
+        } catch (error) {
+            console.error('❌ Erro ao mover budget:', error)
+        }
+    }
 }
 </script>
 
@@ -163,6 +214,13 @@ const formatCurrency = (value: number) => {
 
 .group-budgets {
     padding: 0 16px 16px;
+    transition: all 0.3s ease;
+}
+
+.group-budgets.drag-over {
+    background-color: #e8f5e9;
+    border: 2px dashed #4caf50;
+    border-radius: 8px;
 }
 
 .add-budget-btn-inside {

@@ -62,6 +62,15 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Mock Notification Receiver -->
+        <receiver
+            android:name=".MockNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.budgetsystem.MOCK_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!-- Permissions -->

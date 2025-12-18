@@ -9,7 +9,8 @@ import {
     GoogleAuthProvider,
     signInWithCredential
 } from 'firebase/auth'
-import { auth } from '@/config/firebase'
+import { auth, db } from '@/config/firebase'
+import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth'
 import { Capacitor } from '@capacitor/core'
 
@@ -28,12 +29,45 @@ export const useAuthStore = defineStore('auth', () => {
         loading.value = false
     })
 
+    // Cria ou atualiza documento de usuário no Firestore
+    const ensureUserDocument = async (firebaseUser: User) => {
+        if (!firebaseUser) return
+
+        const userDocRef = doc(db, 'users', firebaseUser.uid)
+        const userDocSnap = await getDoc(userDocRef)
+
+        // Normalizar email: trim e lowercase
+        const normalizedEmail = firebaseUser.email?.trim().toLowerCase()
+
+        if (!userDocSnap.exists()) {
+            // Cria documento do usuário se não existir
+            await setDoc(userDocRef, {
+                email: normalizedEmail,
+                displayName: firebaseUser.displayName || '',
+                photoURL: firebaseUser.photoURL || '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            })
+        } else {
+            // Atualiza email se mudou (comparando normalizados)
+            const userData = userDocSnap.data()
+            const currentEmail = userData.email?.trim().toLowerCase()
+            if (currentEmail !== normalizedEmail) {
+                await setDoc(userDocRef, {
+                    email: normalizedEmail,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true })
+            }
+        }
+    }
+
     // Login com email e senha
     const signIn = async (email: string, password: string) => {
         try {
             error.value = null
             const userCredential = await signInWithEmailAndPassword(auth, email, password)
             user.value = userCredential.user
+            await ensureUserDocument(userCredential.user)
             return { success: true }
         } catch (err: any) {
             error.value = getErrorMessage(err.code)
@@ -47,6 +81,7 @@ export const useAuthStore = defineStore('auth', () => {
             error.value = null
             const userCredential = await createUserWithEmailAndPassword(auth, email, password)
             user.value = userCredential.user
+            await ensureUserDocument(userCredential.user)
             return { success: true }
         } catch (err: any) {
             error.value = getErrorMessage(err.code)
@@ -84,6 +119,7 @@ export const useAuthStore = defineStore('auth', () => {
             })
 
             user.value = result.user
+            await ensureUserDocument(result.user)
             return { success: true }
         } catch (err: any) {
             console.error('❌ [Auth Store] Erro no Google Sign-In:', {

@@ -24,6 +24,14 @@ const editTotal = ref(0)
 const editColor = ref('')
 const savedLimitFeedback = ref(false)
 
+// Atualizar valores quando modal abrir
+watch(() => props.show, (isShowing) => {
+    if (isShowing) {
+        totalBudgetLimit.value = (budgetStore.totalBudgetLimit || 0).toFixed(2).replace('.', ',')
+        resetDay.value = budgetStore.resetDay || 5
+    }
+})
+
 const moneyConfig = {
     decimal: ',',
     thousands: '.',
@@ -339,13 +347,14 @@ onMounted(() => {
                                     </select>
                                 </div>
 
-                                <div class="option-item">
+                                <!-- Notificações comentadas até implementarmos notificações reais -->
+                                <!-- <div class="option-item">
                                     <span>Notificações</span>
                                     <label class="switch">
                                         <input v-model="notificationsEnabled" type="checkbox" />
                                         <span class="slider"></span>
                                     </label>
-                                </div>
+                                </div> -->
 
                                 <div class="option-item">
                                     <span>Modo Escuro</span>

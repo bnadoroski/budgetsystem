@@ -42,8 +42,11 @@
                                     <div v-else class="view-mode">
                                         <div class="group-info">
                                             <div class="group-color" :style="{ backgroundColor: group.color }"></div>
-                                            <span class="group-name">{{ group.name }}</span>
-                                            <span class="budget-count">({{ getBudgetCount(group.id) }} budgets)</span>
+                                            <div class="group-text">
+                                                <span class="group-name">{{ group.name }}</span>
+                                                <span class="budget-count">({{ getBudgetCount(group.id) }}
+                                                    budgets)</span>
+                                            </div>
                                         </div>
                                         <div class="group-actions">
                                             <button class="action-btn" @click="handleEditGroup(group)">
@@ -322,6 +325,7 @@ const getBudgetCount = (groupId: string) => {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex: 1;
 }
 
 .group-color {
@@ -331,14 +335,25 @@ const getBudgetCount = (groupId: string) => {
     flex-shrink: 0;
 }
 
+.group-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
 .group-name {
     font-size: 16px;
     color: #333;
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .budget-count {
-    font-size: 13px;
+    font-size: 12px;
     color: #999;
 }
 

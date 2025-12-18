@@ -38,7 +38,12 @@
                         </div>
 
                         <div class="budgets-list">
-                            <h3>Selecione os budgets para compartilhar</h3>
+                            <div class="budgets-list-header">
+                                <h3>Selecione os budgets para compartilhar</h3>
+                                <button type="button" class="btn-select-all" @click="toggleSelectAll">
+                                    {{ allSelected ? '❌ Desmarcar todos' : '✅ Selecionar todos' }}
+                                </button>
+                            </div>
                             <div v-for="budget in availableBudgets" :key="budget.id" class="budget-item"
                                 :class="{ selected: selectedBudgets.includes(budget.id) }"
                                 @click="toggleBudgetSelection(budget.id)">
@@ -65,10 +70,20 @@
                                 <div class="budget-info">
                                     <div class="budget-color" :style="{ backgroundColor: budget.color }"></div>
                                     <span class="budget-name">{{ budget.name }}</span>
-                                    <span class="shared-badge">Compartilhado</span>
+                                    <svg class="shared-check" xmlns="http://www.w3.org/2000/svg" width="18" height="18"
+                                        viewBox="0 0 24 24" fill="none" stroke="#4CAF50" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
                                 </div>
-                                <button class="unshare-button" @click="handleUnshare(budget.id)">
-                                    Remover
+                                <button class="unshare-button" @click="handleUnshare(budget.id)"
+                                    title="Remover compartilhamento">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path
+                                            d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2">
+                                        </path>
+                                    </svg>
                                 </button>
                             </div>
                         </div>
@@ -105,6 +120,21 @@ const availableBudgets = computed(() => {
 const sharedBudgets = computed(() => {
     return budgetStore.budgets.filter(b => b.sharedWith && b.sharedWith.length > 0)
 })
+
+const allSelected = computed(() => {
+    return availableBudgets.value.length > 0 &&
+        selectedBudgets.value.length === availableBudgets.value.length
+})
+
+const toggleSelectAll = () => {
+    if (allSelected.value) {
+        // Desmarcar todos
+        selectedBudgets.value = []
+    } else {
+        // Selecionar todos
+        selectedBudgets.value = availableBudgets.value.map(b => b.id)
+    }
+}
 
 const toggleBudgetSelection = (budgetId: string) => {
     const index = selectedBudgets.value.indexOf(budgetId)
@@ -317,6 +347,35 @@ const handleUnshare = async (budgetId: string) => {
     margin-top: 24px;
 }
 
+.budgets-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.budgets-list-header h3 {
+    margin: 0;
+}
+
+.btn-select-all {
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-select-all:hover {
+    background: #5568d3;
+    transform: scale(1.02);
+}
+
 .budget-item {
     display: flex;
     justify-content: space-between;
@@ -377,29 +436,27 @@ const handleUnshare = async (budgetId: string) => {
     border-radius: 8px;
 }
 
-.shared-badge {
-    font-size: 12px;
-    color: #667eea;
-    background: #e8ecff;
-    padding: 4px 8px;
-    border-radius: 4px;
+.shared-check {
     margin-left: 8px;
+    flex-shrink: 0;
 }
 
 .unshare-button {
-    padding: 6px 12px;
-    background: #e0e0e0;
-    color: #666;
+    padding: 8px;
+    background: transparent;
+    color: #999;
     border: none;
     border-radius: 6px;
-    font-size: 13px;
     cursor: pointer;
     transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .unshare-button:hover {
     background: #ffebee;
-    color: #e53e3e;
+    color: #e53935;
 }
 
 .no-budgets {

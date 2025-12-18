@@ -3,8 +3,21 @@
         <Transition name="modal">
             <div v-if="show" class="modal-overlay" @click="close">
                 <div class="modal-content" @click.stop>
-                    <h2>Novo Budget</h2>
-                    <form @submit.prevent="handleSubmit">
+                    <!-- Tabs -->
+                    <div class="tabs">
+                        <button type="button" class="tab" :class="{ active: activeTab === 'budget' }"
+                            @click="activeTab = 'budget'">
+                            Novo Budget
+                        </button>
+                        <button type="button" class="tab" :class="{ active: activeTab === 'expense' }"
+                            @click="activeTab = 'expense'">
+                            Novo Lançamento
+                        </button>
+                    </div>
+
+                    <!-- Form para Novo Budget -->
+                    <form v-if="activeTab === 'budget'" @submit.prevent="handleSubmit">
+                        <h2>{{ props.editBudgetId ? 'Editar Budget' : 'Novo Budget' }}</h2>
                         <div class="form-group">
                             <label for="budget-name">Nome do Budget</label>
                             <input id="budget-name" v-model="budgetName" type="text" required
@@ -35,7 +48,43 @@
                         </div>
                         <div class="form-actions">
                             <button type="button" class="btn-cancel" @click="close">Cancelar</button>
-                            <button type="submit" class="btn-submit">Adicionar</button>
+                            <button type="submit" class="btn-submit">{{ props.editBudgetId ? 'Salvar' : 'Adicionar'
+                                }}</button>
+                        </div>
+                    </form>
+
+                    <!-- Form para Novo Lançamento -->
+                    <form v-else-if="activeTab === 'expense'" @submit.prevent="handleExpenseSubmit">
+                        <h2>Novo Lançamento</h2>
+
+                        <div class="form-group">
+                            <label for="expense-value">Valor</label>
+                            <input id="expense-value" required :model-modifiers="{ number: true }"
+                                v-model.lazy="expenseValue" v-money3="moneyConfig" />
+                            <QuickAmountButtons @add="addExpenseAmount" />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="expense-type">Tipo</label>
+                            <select id="expense-type" v-model="expenseType">
+                                <option value="expense">Gasto (-)</option>
+                                <option value="income">Recebimento (+)</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="expense-budget">Budget</label>
+                            <select id="expense-budget" v-model="selectedExpenseBudgetId" required>
+                                <option value="">Selecione um budget</option>
+                                <option v-for="budget in budgetStore.budgets" :key="budget.id" :value="budget.id">
+                                    {{ budget.name }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="button" class="btn-cancel" @click="close">Cancelar</button>
+                            <button type="submit" class="btn-submit">Adicionar Lançamento</button>
                         </div>
                     </form>
                 </div>
@@ -55,11 +104,17 @@ const vMoney3 = Money3Directive
 const props = defineProps<{
     show: boolean
     preselectedGroupId?: string
+    editBudgetId?: string
+    editBudgetName?: string
+    editBudgetValue?: number
+    editBudgetColor?: string
+    editBudgetGroupId?: string
 }>()
 
 const emit = defineEmits<{
     close: []
     submit: [name: string, value: number, color: string, groupId?: string]
+    update: [id: string, name: string, value: number, color: string, groupId?: string]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -67,6 +122,10 @@ const budgetName = ref('')
 const budgetValue = ref('0.00')
 const budgetColor = ref('#4CAF50')
 const selectedGroupId = ref<string>('')
+const activeTab = ref<'budget' | 'expense'>('budget')
+const expenseValue = ref('0.00')
+const expenseType = ref<'expense' | 'income'>('expense')
+const selectedExpenseBudgetId = ref<string>('')
 
 const moneyConfig = {
     decimal: ',',
@@ -121,6 +180,34 @@ const addAmount = (amount: number) => {
     budgetValue.value = newValue.toFixed(2)
 }
 
+const addExpenseAmount = (amount: number) => {
+    // Garante que estamos trabalhando com número, não string
+    let current = 0
+
+    try {
+        const rawValue = expenseValue.value
+
+        if (typeof rawValue === 'number') {
+            current = rawValue
+        } else if (typeof rawValue === 'string') {
+            const cleanStr = rawValue
+                .replace(/[R$\s]/g, '')
+                .replace(/\./g, '')
+                .replace(',', '.')
+
+            current = parseFloat(cleanStr) || 0
+        }
+    } catch (e) {
+        console.error('Erro ao processar valor atual:', e)
+        current = 0
+    }
+
+    const numAmount = Number(amount)
+    const newValue = current + numAmount
+
+    expenseValue.value = newValue.toFixed(2)
+}
+
 const availableColors = [
     // Verdes (claro, médio, escuro)
     '#E8F5E9', '#4CAF50', '#2E7D32',
@@ -144,10 +231,25 @@ const availableColors = [
 
 watch(() => props.show, (newVal) => {
     if (newVal) {
-        budgetName.value = ''
-        budgetValue.value = '0.00'
-        budgetColor.value = '#4CAF50'
-        selectedGroupId.value = props.preselectedGroupId || ''
+        activeTab.value = 'budget'
+
+        // Se está em modo de edição, preenche os campos
+        if (props.editBudgetId) {
+            budgetName.value = props.editBudgetName || ''
+            budgetValue.value = (props.editBudgetValue || 0).toFixed(2)
+            budgetColor.value = props.editBudgetColor || '#4CAF50'
+            selectedGroupId.value = props.editBudgetGroupId || ''
+        } else {
+            // Modo criação - limpa os campos
+            budgetName.value = ''
+            budgetValue.value = '0.00'
+            budgetColor.value = '#4CAF50'
+            selectedGroupId.value = props.preselectedGroupId || ''
+        }
+
+        expenseValue.value = '0.00'
+        expenseType.value = 'expense'
+        selectedExpenseBudgetId.value = ''
     }
 })
 
@@ -169,27 +271,86 @@ const handleSubmit = () => {
     }
 
     if (budgetName.value && numericValue > 0) {
-        // Verificar se já existe budget com mesmo nome
-        const nameExists = budgetStore.budgets.some(
-            b => b.name.toLowerCase() === budgetName.value.toLowerCase()
-        )
+        // Se está editando, emite update, senão emite submit
+        if (props.editBudgetId) {
+            emit('update', props.editBudgetId, budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined)
+            close()
+        } else {
+            // Verificar se já existe budget com mesmo nome
+            const nameExists = budgetStore.budgets.some(
+                b => b.name.toLowerCase() === budgetName.value.toLowerCase()
+            )
 
-        if (nameExists) {
-            alert(`❌ Já existe um budget chamado "${budgetName.value}"`)
-            return
+            if (nameExists) {
+                alert(`❌ Já existe um budget chamado "${budgetName.value}"`)
+                return
+            }
+
+            emit('submit', budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined)
+            close()
         }
-
-        emit('submit', budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined)
-        close()
     }
 }
 
 const close = () => {
     emit('close')
 }
+
+const handleExpenseSubmit = async () => {
+    let numericValue = 0
+    const rawValue = expenseValue.value
+
+    if (typeof rawValue === 'number') {
+        numericValue = rawValue
+    } else if (typeof rawValue === 'string') {
+        const cleanStr = rawValue
+            .replace(/[R$\s]/g, '')
+            .replace(/\./g, '')
+            .replace(',', '.')
+
+        numericValue = parseFloat(cleanStr) || 0
+    }
+
+    if (numericValue > 0 && selectedExpenseBudgetId.value) {
+        // Se for recebimento, subtrai do valor gasto (como se fosse um "estorno")
+        const finalAmount = expenseType.value === 'income' ? -numericValue : numericValue
+
+        await budgetStore.addExpense(selectedExpenseBudgetId.value, finalAmount)
+        close()
+    }
+}
 </script>
 
 <style scoped>
+.tabs {
+    display: flex;
+    border-bottom: 2px solid #e0e0e0;
+    margin-bottom: 20px;
+}
+
+.tab {
+    flex: 1;
+    padding: 12px;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-size: 15px;
+    font-weight: 500;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab:hover {
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.05);
+}
+
+.tab.active {
+    color: #4CAF50;
+    border-bottom-color: #4CAF50;
+}
+
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -200,7 +361,7 @@ const close = () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: 2000;
 }
 
 .modal-content {

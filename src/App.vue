@@ -6,6 +6,7 @@ import { App as CapacitorApp } from '@capacitor/app'
 import NotificationPlugin from '@/plugins/NotificationPlugin'
 import BudgetBar from '@/components/BudgetBar.vue'
 import BudgetGroup from '@/components/BudgetGroup.vue'
+import AggregatedBudgetBar from '@/components/AggregatedBudgetBar.vue'
 import AddBudgetModal from '@/components/AddBudgetModal.vue'
 import AuthModal from '@/components/AuthModal.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
@@ -15,6 +16,10 @@ import HistoryModal from '@/components/HistoryModal.vue'
 import PendingExpensesModal from '@/components/PendingExpensesModal.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 import DailyBudgetCard from '@/components/DailyBudgetCard.vue'
+import PermissionModal from '@/components/PermissionModal.vue'
+import EmptyPendingModal from '@/components/EmptyPendingModal.vue'
+import ProfileModal from '@/components/ProfileModal.vue'
+import ShareInviteModal from '@/components/ShareInviteModal.vue'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
@@ -66,8 +71,17 @@ const showShareModal = ref(false)
 const showHistoryModal = ref(false)
 const showPendingExpensesModal = ref(false)
 const showDebugPanel = ref(false)
+const showPermissionModal = ref(false)
+const showEmptyPendingModal = ref(false)
+const showProfileModal = ref(false)
+const showShareInviteModal = ref(false)
+const currentInvite = ref<any>(null)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
+const pendingExpenseToAdd = ref<any>(null)
 const debugInfo = ref('')
+const editingBudgetId = ref<string | undefined>(undefined)
+const editingBudgetData = ref<any>(null)
+const permissionDenied = ref(false)
 
 const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
@@ -102,6 +116,22 @@ const handleBackButton = () => {
     showPendingExpensesModal.value = false
     return
   }
+  if (showProfileModal.value) {
+    showProfileModal.value = false
+    return
+  }
+  if (showShareInviteModal.value) {
+    showShareInviteModal.value = false
+    return
+  }
+  if (showPermissionModal.value) {
+    showPermissionModal.value = false
+    return
+  }
+  if (showEmptyPendingModal.value) {
+    showEmptyPendingModal.value = false
+    return
+  }
   if (showDebugPanel.value) {
     showDebugPanel.value = false
     return
@@ -111,9 +141,34 @@ const handleBackButton = () => {
   CapacitorApp.minimizeApp()
 }
 
-const handleAddBudget = (name: string, value: number, color: string, groupId?: string) => {
-  budgetStore.addBudget(name, value, color, groupId)
+const handleAddBudget = async (name: string, value: number, color: string, groupId?: string) => {
+  await budgetStore.addBudget(name, value, color, groupId)
+
+  // Se há uma despesa pendente aguardando, adiciona ao budget recém-criado
+  if (pendingExpenseToAdd.value) {
+    const newBudget = budgetStore.budgets.find(b => b.name === name)
+    if (newBudget) {
+      await budgetStore.addExpense(newBudget.id, pendingExpenseToAdd.value.amount)
+      budgetStore.removePendingExpense(pendingExpenseToAdd.value.id)
+      pendingExpenseToAdd.value = null
+    }
+  }
+
   selectedGroupIdForNewBudget.value = undefined
+  editingBudgetId.value = undefined
+  editingBudgetData.value = null
+}
+
+const handleUpdateBudget = async (id: string, name: string, value: number, color: string, groupId?: string) => {
+  await budgetStore.updateBudget(id, {
+    name,
+    totalValue: value,
+    color,
+    groupId: groupId || undefined
+  })
+
+  editingBudgetId.value = undefined
+  editingBudgetData.value = null
 }
 
 const handleAddBudgetToGroup = (groupId: string) => {
@@ -126,8 +181,17 @@ const handleAddBudgetToGroup = (groupId: string) => {
 }
 
 const handleEditBudget = (budgetId: string) => {
-  // TODO: Implementar modal de edição
-  console.log('Editar budget:', budgetId)
+  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (budget) {
+    editingBudgetId.value = budget.id
+    editingBudgetData.value = {
+      name: budget.name,
+      value: budget.totalValue,
+      color: budget.color,
+      groupId: budget.groupId
+    }
+    showAddModal.value = true
+  }
 }
 
 const handleDeleteBudget = async (budgetId: string) => {
@@ -140,6 +204,8 @@ const handleAddBudgetClick = () => {
   if (!authStore.isAuthenticated) {
     showAuthModal.value = true
   } else {
+    editingBudgetId.value = undefined
+    editingBudgetData.value = null
     showAddModal.value = true
   }
 }
@@ -156,58 +222,130 @@ const ungroupedBudgets = computed(() => {
   return budgetStore.budgets.filter(b => !b.groupId)
 })
 
+// Agrupa budgets com mesmo nome
+const aggregatedUngroupedBudgets = computed(() => {
+  const budgets = ungroupedBudgets.value
+  const grouped = new Map<string, any[]>()
+
+  budgets.forEach(budget => {
+    const key = budget.name
+    if (!grouped.has(key)) {
+      grouped.set(key, [])
+    }
+    grouped.get(key)!.push(budget)
+  })
+
+  const result: any[] = []
+
+  grouped.forEach((budgetGroup, name) => {
+    if (budgetGroup.length === 1) {
+      // Budget único, não agregado
+      result.push({ type: 'single', budget: budgetGroup[0] })
+    } else {
+      // Budgets agregados (mesmo nome)
+      const totalValue = budgetGroup.reduce((sum, b) => sum + b.totalValue, 0)
+      const spentValue = budgetGroup.reduce((sum, b) => sum + b.spentValue, 0)
+      result.push({
+        type: 'aggregated',
+        aggregated: {
+          name,
+          budgets: budgetGroup,
+          totalValue,
+          spentValue,
+          color: budgetGroup[0].color,
+          groupId: budgetGroup[0].groupId
+        }
+      })
+    }
+  })
+
+  return result
+})
+
 const handleProfileClick = () => {
   if (authStore.isAuthenticated) {
-    // Mostrar menu de perfil ou logout com email
-    const email = authStore.userEmail || 'usuário'
-    if (confirm(`Logado como: ${email}\n\nDeseja fazer logout?`)) {
-      authStore.signOut()
-    }
+    showProfileModal.value = true
   } else {
     showAuthModal.value = true
   }
 }
 
-const handlePendingExpensesClick = () => {
+const handleProfileLogout = () => {
+  showProfileModal.value = false
+  authStore.signOut()
+}
+
+const handlePendingExpensesClick = async () => {
+  // Verifica se tem permissão
+  const permissionResult = await NotificationPlugin.checkPermission()
+
+  if (!permissionResult.hasPermission) {
+    // Não tem permissão - solicita
+    showPermissionModal.value = true
+    return
+  }
+
+  // Tem permissão - verifica se há despesas
   if (pendingExpensesCount.value > 0) {
     showPendingExpensesModal.value = true
   } else {
-    // Mostra mensagem temporária quando não há despesas pendentes
-    const originalTitle = document.title
-    document.title = '✅ Nenhuma despesa pendente'
-
-    // Cria notificação visual
-    const notification = document.createElement('div')
-    notification.textContent = '✅ Nenhuma despesa pendente'
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: linear-gradient(135deg, #4CAF50, #66BB6A);
-      color: white;
-      padding: 14px 28px;
-      border-radius: 12px;
-      font-weight: 500;
-      box-shadow: 0 4px 20px rgba(76, 175, 80, 0.4);
-      z-index: 1001;
-      animation: slideDown 0.3s ease-out;
-      font-size: 15px;
-    `
-    document.body.appendChild(notification)
-
-    // Remove a notificação após 2 segundos
-    setTimeout(() => {
-      notification.style.opacity = '0'
-      notification.style.transform = 'translateX(-50%) translateY(-20px)'
-      notification.style.transition = 'all 0.3s ease-out'
-      setTimeout(() => {
-        document.body.removeChild(notification)
-        document.title = originalTitle
-      }, 300)
-    }, 2000)
+    // Mostra modal bonita de que não há despesas
+    showEmptyPendingModal.value = true
   }
 }
+
+const handleHistoryClick = () => {
+  showHistoryModal.value = true
+}
+
+const handlePermissionAllow = async () => {
+  showPermissionModal.value = false
+  await NotificationPlugin.requestPermission()
+  permissionDenied.value = false
+}
+
+const handlePermissionCancel = () => {
+  showPermissionModal.value = false
+  permissionDenied.value = true
+}
+
+const handleOpenAddBudgetFromPending = (expense: any) => {
+  pendingExpenseToAdd.value = expense
+  showPendingExpensesModal.value = false
+  showAddModal.value = true
+}
+
+const handleAcceptInvite = async (inviteId: string) => {
+  console.log('🎯 handleAcceptInvite chamado com inviteId:', inviteId)
+  try {
+    await budgetStore.acceptShareInvite(inviteId)
+    console.log('✅ Convite aceito com sucesso')
+    showShareInviteModal.value = false
+    currentInvite.value = null
+  } catch (error: any) {
+    console.error('❌ Erro ao aceitar convite:', error)
+    handleError(error, 'aceitar convite')
+  }
+}
+
+const handleRejectInvite = async (inviteId: string) => {
+  try {
+    await budgetStore.rejectShareInvite(inviteId)
+    showShareInviteModal.value = false
+    currentInvite.value = null
+  } catch (error: any) {
+    handleError(error, 'recusar convite')
+  }
+}
+
+// Watch para novos convites
+watch(() => budgetStore.shareInvites.length, (newLength, oldLength) => {
+  if (newLength > 0 && newLength > (oldLength || 0)) {
+    // Novo convite recebido - mostrar modal
+    currentInvite.value = budgetStore.shareInvites[0]
+    showShareInviteModal.value = true
+  }
+})
 
 // Quando o usuário faz login/logout
 watch(() => authStore.user, async (newUser, oldUser) => {
@@ -224,10 +362,23 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       await budgetStore.loadBudgets(newUser.uid)
       await budgetStore.loadGroups(newUser.uid)
       await budgetStore.startSharedBudgetsListener(newUser.uid)
+
+      // Iniciar listener de convites
+      if (newUser.email) {
+        budgetStore.startInvitesListener(newUser.email)
+      }
+
+      // Mock: Criar convite de compartilhamento para testar (REMOVER DEPOIS)
+      if (newUser.email === 'bnadoroski@gmail.com') {
+        setTimeout(async () => {
+          await budgetStore.addMockShareInvite('bnadoroski@gmail.com')
+        }, 2000)
+      }
     } else if (!newUser && oldUser) {
       // Usuário fez logout
       budgetStore.stopBudgetsListener()
       budgetStore.stopGroupsListener()
+      budgetStore.stopInvitesListener()
       budgetStore.clearLocalData()
     }
   } catch (error) {
@@ -249,20 +400,15 @@ onMounted(async () => {
 
     if (!permissionResult.hasPermission) {
       console.warn('⚠️ Permissão de notificação não habilitada!')
-
-      // Pergunta ao usuário se quer habilitar
-      const enablePermission = confirm(
-        '🔔 Permissão de Notificação\n\n' +
-        'Para detectar gastos automaticamente, o app precisa acessar suas notificações bancárias.\n\n' +
-        'Deseja habilitar agora?'
-      )
-
-      if (enablePermission) {
-        await NotificationPlugin.requestPermission()
-        console.log('📱 Configurações abertas. Por favor, habilite "Budget System"')
-      }
+      // Mostra modal bonita depois de um pequeno delay
+      setTimeout(() => {
+        showPermissionModal.value = true
+      }, 1000)
     } else {
       console.log('✅ Permissão já habilitada! Listener pronto para capturar notificações.')
+      console.log('💡 IMPORTANTE: Se acabou de fazer build, o serviço pode precisar ser reiniciado!')
+      console.log('📱 Para reativar: Configurações > Apps > Budget System > Force Stop > Abrir app novamente')
+      console.log('🔄 Ou: Desabilite e reabilite a permissão de notificação nas configurações')
     }
 
     await NotificationPlugin.addListener('bankExpense', (expense) => {
@@ -353,7 +499,7 @@ onUnmounted(() => {
 
     <!-- History Button -->
     <div class="pt-8">
-      <button class="history-button" @click="showHistoryModal = true" title="Ver histórico">
+      <button class="history-button" @click="handleHistoryClick" title="Ver histórico">
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 48 48">
           <g fill="none">
             <path fill="url(#SVGVSdJzcMZ)"
@@ -416,37 +562,19 @@ onUnmounted(() => {
       <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" @edit-budget="handleEditBudget"
         @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup" />
 
-      <!-- Ungrouped Budgets -->
-      <BudgetBar v-for="budget in ungroupedBudgets" :key="budget.id" :budget="budget"
-        @edit="() => handleEditBudget(budget.id)" @delete="() => handleDeleteBudget(budget.id)" />
+      <!-- Ungrouped Budgets (com agregação) -->
+      <template v-for="item in aggregatedUngroupedBudgets"
+        :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
+        <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
+          @delete="() => handleDeleteBudget(item.budget.id)" />
+        <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)" />
+      </template>
     </div>
 
     <!-- Daily Budget Card -->
     <DailyBudgetCard />
 
     <div class="bottom-nav">
-      <button class="nav-button" title="Grupos" @click="handleGroupsClick">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
-          <g fill="none">
-            <path fill="url(#SVGlHpytcfC)"
-              d="M11 28h14.5a2.5 2.5 0 0 0 2.5-2.5v-2a2.5 2.5 0 0 0-2.5-2.5H11l-1 3.5zm0-9h14.5a2.5 2.5 0 0 0 2.5-2.5v-1a2.5 2.5 0 0 0-2.5-2.5H11l-1 3zm0-8h14.5A2.5 2.5 0 0 0 28 8.5v-2A2.5 2.5 0 0 0 25.5 4H11l-1 3.5z" />
-            <path fill="url(#SVG5RI0JguJ)"
-              d="M11 13v6H6.5A2.5 2.5 0 0 1 4 16.5v-1A2.5 2.5 0 0 1 6.5 13zm0-9v7H6.5A2.5 2.5 0 0 1 4 8.5v-2A2.5 2.5 0 0 1 6.5 4zm0 17v7H6.5A2.5 2.5 0 0 1 4 25.5v-2A2.5 2.5 0 0 1 6.5 21z" />
-            <defs>
-              <linearGradient id="SVGlHpytcfC" x1="7.3" x2="27.919" y1=".571" y2="26.64" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#36dff1" />
-                <stop offset="1" stop-color="#0094f0" />
-              </linearGradient>
-              <linearGradient id="SVG5RI0JguJ" x1="5.665" x2="16.071" y1="7.19" y2="12.037"
-                gradientUnits="userSpaceOnUse">
-                <stop offset=".125" stop-color="#9c6cfe" />
-                <stop offset="1" stop-color="#7a41dc" />
-              </linearGradient>
-            </defs>
-          </g>
-        </svg>
-      </button>
-
       <button class="nav-button pending-btn" title="Despesas Pendentes" @click="handlePendingExpensesClick">
         <span class="badge" v-if="pendingExpensesCount > 0">{{ pendingExpensesCount }}</span>
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
@@ -507,8 +635,52 @@ onUnmounted(() => {
         </svg>
       </button>
 
+      <button class="nav-button" title="Grupos" @click="handleGroupsClick">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32">
+          <g fill="none">
+            <path fill="url(#SVGlHpytcfC)"
+              d="M11 28h14.5a2.5 2.5 0 0 0 2.5-2.5v-2a2.5 2.5 0 0 0-2.5-2.5H11l-1 3.5zm0-9h14.5a2.5 2.5 0 0 0 2.5-2.5v-1a2.5 2.5 0 0 0-2.5-2.5H11l-1 3zm0-8h14.5A2.5 2.5 0 0 0 28 8.5v-2A2.5 2.5 0 0 0 25.5 4H11l-1 3.5z" />
+            <path fill="url(#SVG5RI0JguJ)"
+              d="M11 13v6H6.5A2.5 2.5 0 0 1 4 16.5v-1A2.5 2.5 0 0 1 6.5 13zm0-9v7H6.5A2.5 2.5 0 0 1 4 8.5v-2A2.5 2.5 0 0 1 6.5 4zm0 17v7H6.5A2.5 2.5 0 0 1 4 25.5v-2A2.5 2.5 0 0 1 6.5 21z" />
+            <defs>
+              <linearGradient id="SVGlHpytcfC" x1="7.3" x2="27.919" y1=".571" y2="26.64" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#36dff1" />
+                <stop offset="1" stop-color="#0094f0" />
+              </linearGradient>
+              <linearGradient id="SVG5RI0JguJ" x1="5.665" x2="16.071" y1="7.19" y2="12.037"
+                gradientUnits="userSpaceOnUse">
+                <stop offset=".125" stop-color="#9c6cfe" />
+                <stop offset="1" stop-color="#7a41dc" />
+              </linearGradient>
+            </defs>
+          </g>
+        </svg>
+      </button>
+
+      <button class="nav-button add-button" @click="handleAddBudgetClick" title="Adicionar Budget">
+        <svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 32 32">
+          <g fill="none">
+            <path fill="url(#SVGau1xsAGW)"
+              d="M30 16c0 7.732-6.268 14-14 14S2 23.732 2 16S8.268 2 16 2s14 6.268 14 14" />
+            <path fill="url(#SVGYbPd5clO)"
+              d="M15 10a1 1 0 1 1 2 0v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5h-5a1 1 0 1 1 0-2h5z" />
+            <defs>
+              <linearGradient id="SVGau1xsAGW" x1="3" x2="22.323" y1="7.25" y2="27.326" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#52d17c" />
+                <stop offset="1" stop-color="#22918b" />
+              </linearGradient>
+              <linearGradient id="SVGYbPd5clO" x1="11.625" x2="15.921" y1="10.428" y2="25.592"
+                gradientUnits="userSpaceOnUse">
+                <stop stop-color="#fff" />
+                <stop offset="1" stop-color="#e3ffd9" />
+              </linearGradient>
+            </defs>
+          </g>
+        </svg>
+      </button>
+
       <button class="nav-button" title="Configurações" @click="showSettingsModal = true">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 20 20">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
           <g fill="none">
             <path fill="url(#SVGPftDHeRF)"
               d="M16 5.117V10.5h-3V5.117a20 20 0 0 1-.29-.554a8 8 0 0 1-.148-.313A.6.6 0 0 1 12.5 4q0-.086.07-.312q.071-.228.157-.493t.171-.5q.087-.234.125-.351a.46.46 0 0 1 .18-.242A.55.55 0 0 1 13.5 2h2q.164 0 .29.094a.57.57 0 0 1 .187.25q.03.109.117.344l.18.5q.093.265.156.492q.062.225.07.32a.7.7 0 0 1-.062.242q-.063.15-.141.32a3 3 0 0 1-.164.313a2 2 0 0 0-.133.242" />
@@ -543,88 +715,8 @@ onUnmounted(() => {
         </svg>
       </button>
 
-      <button class="nav-button add-button" @click="handleAddBudgetClick" title="Adicionar Budget">
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" vioiewBox="0 0 32 32">
-          <g fill="none">
-            <path fill="url(#SVGau1xsAGW)"
-              d="M30 16c0 7.732-6.268 14-14 14S2 23.732 2 16S8.268 2 16 2s14 6.268 14 14" />
-            <path fill="url(#SVGYbPd5clO)"
-              d="M15 10a1 1 0 1 1 2 0v5h5a1 1 0 1 1 0 2h-5v5a1 1 0 1 1-2 0v-5h-5a1 1 0 1 1 0-2h5z" />
-            <defs>
-              <linearGradient id="SVGau1xsAGW" x1="3" x2="22.323" y1="7.25" y2="27.326" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#52d17c" />
-                <stop offset="1" stop-color="#22918b" />
-              </linearGradient>
-              <linearGradient id="SVGYbPd5clO" x1="11.625" x2="15.921" y1="10.428" y2="25.592"
-                gradientUnits="userSpaceOnUse">
-                <stop stop-color="#fff" />
-                <stop offset="1" stop-color="#e3ffd9" />
-              </linearGradient>
-            </defs>
-          </g>
-        </svg>
-      </button>
-
-      <button class="nav-button" title="Compartilhar" @click="showShareModal = true">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
-          <g fill="none">
-            <path fill="url(#SVGTCIsBbRM)" fill-rule="evenodd"
-              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
-              clip-rule="evenodd" />
-            <path fill="url(#SVGpzlRP9hG)" fill-rule="evenodd"
-              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
-              clip-rule="evenodd" />
-            <path fill="url(#SVG5sIYteLx)" fill-rule="evenodd"
-              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
-              clip-rule="evenodd" />
-            <path fill="url(#SVGudKsbcgX)" fill-rule="evenodd"
-              d="M15 15H9.5A2.5 2.5 0 0 0 7 17.5V22h2v-4.5a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5V22h2v-4.5a2.5 2.5 0 0 0-2.5-2.5H17v-5h-2z"
-              clip-rule="evenodd" />
-            <path fill="url(#SVGB8kyadpq)" d="M29 25a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
-            <path fill="url(#SVGlrkOvePN)" d="M13 25a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
-            <path fill="url(#SVGb6Cejerf)" d="M21 7a5 5 0 1 1-10 0a5 5 0 0 1 10 0" />
-            <defs>
-              <radialGradient id="SVGpzlRP9hG" cx="0" cy="0" r="1"
-                gradientTransform="matrix(0 7.60577 -11.4087 0 16 6.394)" gradientUnits="userSpaceOnUse">
-                <stop offset=".695" stop-color="#70777d" />
-                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
-              </radialGradient>
-              <radialGradient id="SVG5sIYteLx" cx="0" cy="0" r="1"
-                gradientTransform="rotate(-90.216 16.302 8.464)scale(7.47121 11.2068)" gradientUnits="userSpaceOnUse">
-                <stop offset=".549" stop-color="#70777d" />
-                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
-              </radialGradient>
-              <radialGradient id="SVGudKsbcgX" cx="0" cy="0" r="1"
-                gradientTransform="rotate(-89.564 24.515 .257)scale(7.38483 11.0773)" gradientUnits="userSpaceOnUse">
-                <stop offset=".549" stop-color="#70777d" />
-                <stop offset="1" stop-color="#70777d" stop-opacity="0" />
-              </radialGradient>
-              <radialGradient id="SVGB8kyadpq" cx="0" cy="0" r="1"
-                gradientTransform="rotate(53.616 -2.282 17.25)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
-                <stop offset=".529" stop-color="#7b7bff" />
-                <stop offset="1" stop-color="#4a43cb" />
-              </radialGradient>
-              <radialGradient id="SVGlrkOvePN" cx="0" cy="0" r="1"
-                gradientTransform="rotate(53.616 -10.282 1.417)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
-                <stop offset=".529" stop-color="#1ec8b0" />
-                <stop offset="1" stop-color="#1a7f7c" />
-              </radialGradient>
-              <radialGradient id="SVGb6Cejerf" cx="0" cy="0" r="1"
-                gradientTransform="rotate(53.616 11.529 .333)scale(27.0426 23.1608)" gradientUnits="userSpaceOnUse">
-                <stop offset=".529" stop-color="#0fafff" />
-                <stop offset="1" stop-color="#0067bf" />
-              </radialGradient>
-              <linearGradient id="SVGTCIsBbRM" x1="7" x2="10.055" y1="10" y2="23.094" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#b9c0c7" />
-                <stop offset="1" stop-color="#70777d" />
-              </linearGradient>
-            </defs>
-          </g>
-        </svg>
-      </button>
-
       <button class="nav-button" title="Perfil" @click="handleProfileClick">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 32 32">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 32 32">
           <g fill="none">
             <path fill="#212121"
               d="M7.5 18A3.5 3.5 0 0 0 4 21.5v.5c0 2.393 1.523 4.417 3.685 5.793C9.859 29.177 12.802 30 16 30s6.14-.823 8.315-2.206C26.477 26.418 28 24.394 28 22v-.5a3.5 3.5 0 0 0-3.5-3.5z" />
@@ -658,14 +750,26 @@ onUnmounted(() => {
     </div>
 
     <AddBudgetModal :show="showAddModal" :preselected-group-id="selectedGroupIdForNewBudget"
-      @close="showAddModal = false; selectedGroupIdForNewBudget = undefined" @submit="handleAddBudget" />
+      :edit-budget-id="editingBudgetId" :edit-budget-name="editingBudgetData?.name"
+      :edit-budget-value="editingBudgetData?.value" :edit-budget-color="editingBudgetData?.color"
+      :edit-budget-group-id="editingBudgetData?.groupId"
+      @close="showAddModal = false; selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
+      @submit="handleAddBudget" @update="handleUpdateBudget" />
     <AuthModal :show="showAuthModal" @close="showAuthModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
     <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
-    <PendingExpensesModal :show="showPendingExpensesModal" @close="showPendingExpensesModal = false" />
+    <PendingExpensesModal :show="showPendingExpensesModal" @close="showPendingExpensesModal = false"
+      @open-add-budget="handleOpenAddBudgetFromPending" />
     <DebugPanel :show="showDebugPanel" @close="showDebugPanel = false" />
+    <PermissionModal :show="showPermissionModal" @allow="handlePermissionAllow" @cancel="handlePermissionCancel"
+      @close="handlePermissionCancel" />
+    <EmptyPendingModal :show="showEmptyPendingModal" @close="showEmptyPendingModal = false" />
+    <ProfileModal :show="showProfileModal" :email="authStore.user?.email || ''" @close="showProfileModal = false"
+      @logout="handleProfileLogout" />
+    <ShareInviteModal :show="showShareInviteModal" :invite="currentInvite" @accept="handleAcceptInvite"
+      @reject="handleRejectInvite" @close="showShareInviteModal = false" />
   </div>
 </template>
 
@@ -699,6 +803,9 @@ onUnmounted(() => {
   padding: 20px;
   position: relative;
   z-index: 1;
+  padding-bottom: 160px;
+  overflow-y: auto;
+  max-height: calc(100vh - env(safe-area-inset-top) - 80px);
 }
 
 .empty-state {
@@ -840,6 +947,7 @@ onUnmounted(() => {
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   max-width: 600px;
   margin: 0 auto;
+  z-index: 100;
 }
 
 .nav-button {
