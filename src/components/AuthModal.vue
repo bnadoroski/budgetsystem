@@ -1,7 +1,7 @@
 <template>
     <Teleport to="body">
         <Transition name="modal">
-            <div v-if="show" class="modal-overlay" @click="close">
+            <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
                 <div class="modal-content auth-modal" @click.stop>
                     <h2>{{ isLogin ? 'Entrar' : 'Criar Conta' }}</h2>
 
@@ -67,6 +67,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps<{
     show: boolean
+    persist?: boolean // Se true, não permite fechar a modal
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +88,12 @@ watch(() => props.show, (newVal) => {
         authStore.error = null
     }
 })
+
+const handleOverlayClick = () => {
+    if (!props.persist) {
+        close()
+    }
+}
 
 const handleSubmit = async () => {
     try {

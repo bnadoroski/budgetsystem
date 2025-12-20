@@ -157,6 +157,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     close: []
     logout: []
+    reviewInvite: [invite: any]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -309,8 +310,7 @@ const handleRemoveShare = async (email: string) => {
 }
 
 const handleReviewInvite = (invite: any) => {
-    emit('close')
-    // O ShareInviteModal será exibido automaticamente quando o usuário voltar para a tela principal
+    emit('reviewInvite', invite)
 }
 
 const updateSharing = async () => {

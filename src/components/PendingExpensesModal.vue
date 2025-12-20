@@ -27,6 +27,16 @@
 
                                 <p class="expense-description">{{ expense.description }}</p>
 
+                                <div v-if="expense.merchantName" class="expense-merchant">
+                                    <span class="merchant-icon">🏪</span>
+                                    <span class="merchant-name">{{ expense.merchantName }}</span>
+                                </div>
+
+                                <div v-if="expense.installmentTotal" class="expense-installment">
+                                    <span class="installment-icon">💳</span>
+                                    <span class="installment-text">Parcela {{ expense.installmentNumber }}/{{ expense.installmentTotal }}</span>
+                                </div>
+
                                 <div class="expense-footer">
                                     <span class="expense-category">🏷️ {{ expense.category }}</span>
                                     <span class="expense-time">{{ formatTime(expense.timestamp) }}</span>
@@ -57,6 +67,50 @@
                         <div class="edit-modal" @click.stop>
                             <h3>✏️ Escolher Budget</h3>
 
+                            <!-- Informações da despesa -->
+                            <div class="expense-info">
+                                <div class="info-row">
+                                    <span class="info-label">Valor:</span>
+                                    <span class="info-value">{{ formatCurrency(editingExpense.amount) }}</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="info-label">Descrição:</span>
+                                    <span class="info-value">{{ editingExpense.description }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Opções de parcelamento -->
+                            <div class="installment-section">
+                                <label class="section-title">💳 Parcelamento</label>
+                                <div class="installment-inputs">
+                                    <div class="input-group">
+                                        <label for="installmentNumber">Parcela Atual:</label>
+                                        <input 
+                                            id="installmentNumber"
+                                            v-model.number="editingInstallmentNumber" 
+                                            type="number" 
+                                            min="1" 
+                                            :max="editingInstallmentTotal || 12"
+                                            placeholder="Ex: 1"
+                                        />
+                                    </div>
+                                    <div class="installment-separator">/</div>
+                                    <div class="input-group">
+                                        <label for="installmentTotal">Total de Parcelas:</label>
+                                        <input 
+                                            id="installmentTotal"
+                                            v-model.number="editingInstallmentTotal" 
+                                            type="number" 
+                                            min="1" 
+                                            max="99"
+                                            placeholder="Ex: 12"
+                                        />
+                                    </div>
+                                </div>
+                                <p class="installment-hint">Deixe em branco para compra à vista</p>
+                            </div>
+
+                            <!-- Lista de budgets -->
                             <div class="budget-list">
                                 <button v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-option"
                                     @click="selectBudget(budget.name)">
@@ -90,6 +144,9 @@ interface PendingExpense {
     description: string
     category: string
     timestamp: number
+    merchantName?: string
+    installmentNumber?: number
+    installmentTotal?: number
 }
 
 const props = defineProps<{
@@ -103,6 +160,8 @@ const emit = defineEmits<{
 
 const budgetStore = useBudgetStore()
 const editingExpense = ref<PendingExpense | null>(null)
+const editingInstallmentNumber = ref<number | undefined>(undefined)
+const editingInstallmentTotal = ref<number | undefined>(undefined)
 const swipingId = ref<string | null>(null)
 const swipeX = ref(0)
 const startX = ref(0)
@@ -111,7 +170,16 @@ const isDragging = ref(false)
 const pendingExpenses = computed(() => budgetStore.pendingExpenses)
 
 const getSuggestedBudget = (expense: PendingExpense) => {
-    // Procura budget com nome igual à categoria
+    // Primeiro tenta por merchant
+    if (expense.merchantName) {
+        const merchantSuggestion = budgetStore.budgets.find(b => {
+            const normalized = (name: string) => name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            return normalized(b.name).includes(normalized(expense.merchantName || ''))
+        })
+        if (merchantSuggestion) return merchantSuggestion.name + ' 🎯'
+    }
+    
+    // Senão, procura budget com nome igual à categoria
     const suggested = budgetStore.budgets.find(b =>
         b.name.toLowerCase() === expense.category.toLowerCase()
     )
@@ -209,16 +277,16 @@ const approveExpense = async (expense: PendingExpense) => {
     }
 
     if (budget) {
-        // Adiciona despesa ao budget
-        await budgetStore.addExpense(budget.id, expense.amount)
-
-        // Remove da lista de pendentes
-        budgetStore.removePendingExpense(expense.id)
+        // Aprova despesa e salva transação
+        await budgetStore.approvePendingExpenseWithTransaction(expense.id, budget.id)
     }
 }
 
 const editExpense = (expense: PendingExpense) => {
     editingExpense.value = expense
+    // Inicializa campos de parcelamento com valores da despesa
+    editingInstallmentNumber.value = expense.installmentNumber
+    editingInstallmentTotal.value = expense.installmentTotal
 }
 
 const selectBudget = async (budgetName: string) => {
@@ -226,9 +294,23 @@ const selectBudget = async (budgetName: string) => {
 
     const budget = budgetStore.budgets.find(b => b.name === budgetName)
     if (budget) {
-        await budgetStore.addExpense(budget.id, editingExpense.value.amount)
-        budgetStore.removePendingExpense(editingExpense.value.id)
+        // Atualiza a despesa com informações de parcelamento antes de aprovar
+        const updatedExpense = {
+            ...editingExpense.value,
+            installmentNumber: editingInstallmentNumber.value,
+            installmentTotal: editingInstallmentTotal.value
+        }
+        
+        // Atualiza a despesa no store
+        budgetStore.updatePendingExpense(updatedExpense.id, {
+            installmentNumber: editingInstallmentNumber.value,
+            installmentTotal: editingInstallmentTotal.value
+        })
+        
+        await budgetStore.approvePendingExpenseWithTransaction(updatedExpense.id, budget.id)
         editingExpense.value = null
+        editingInstallmentNumber.value = undefined
+        editingInstallmentTotal.value = undefined
     }
 }
 
@@ -236,8 +318,22 @@ const createNewBudget = () => {
     // Emite evento para que o App.vue abra a modal de criar budget
     // e mantenha a referência da despesa pendente
     if (editingExpense.value) {
-        emit('openAddBudget', editingExpense.value)
+        // Atualiza a despesa com informações de parcelamento antes de criar novo budget
+        const updatedExpense = {
+            ...editingExpense.value,
+            installmentNumber: editingInstallmentNumber.value,
+            installmentTotal: editingInstallmentTotal.value
+        }
+        
+        budgetStore.updatePendingExpense(updatedExpense.id, {
+            installmentNumber: editingInstallmentNumber.value,
+            installmentTotal: editingInstallmentTotal.value
+        })
+        
+        emit('openAddBudget', updatedExpense)
         editingExpense.value = null
+        editingInstallmentNumber.value = undefined
+        editingInstallmentTotal.value = undefined
     }
 }
 
@@ -249,6 +345,8 @@ const rejectExpense = (expense: PendingExpense) => {
 
 const cancelEdit = () => {
     editingExpense.value = null
+    editingInstallmentNumber.value = undefined
+    editingInstallmentTotal.value = undefined
 }
 
 const close = () => {
@@ -380,8 +478,48 @@ h2 {
     margin-bottom: 12px;
 }
 
-.expense-suggestion {
+.expense-merchant {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #FFF3E0;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.merchant-icon {
+    font-size: 16px;
+}
+
+.merchant-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #F57C00;
+}
+
+.expense-installment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
     background: #E3F2FD;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+.installment-icon {
+    font-size: 16px;
+}
+
+.installment-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1976D2;
+}
+
+.expense-suggestion {
+    background: #E8F5E9;
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 13px;
@@ -397,7 +535,7 @@ h2 {
 
 .suggestion-budget {
     font-weight: 600;
-    color: #2196F3;
+    color: #4CAF50;
     flex: 1;
 }
 
@@ -444,12 +582,109 @@ h2 {
     background: white;
     border-radius: 16px;
     padding: 24px;
-    max-width: 400px;
+    max-width: 450px;
     width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
 }
 
 .edit-modal h3 {
     margin: 0 0 16px 0;
+}
+
+/* Informações da despesa */
+.expense-info {
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.info-row:last-child {
+    margin-bottom: 0;
+}
+
+.info-label {
+    font-weight: 600;
+    color: #666;
+    font-size: 13px;
+}
+
+.info-value {
+    color: #333;
+    font-size: 13px;
+}
+
+/* Seção de parcelamento */
+.installment-section {
+    background: #E3F2FD;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.section-title {
+    display: block;
+    font-weight: 600;
+    color: #1976D2;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.installment-inputs {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.input-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.input-group label {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.input-group input {
+    padding: 10px;
+    border: 2px solid #BBDEFB;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+    font-weight: 600;
+    color: #1976D2;
+    background: white;
+}
+
+.input-group input:focus {
+    outline: none;
+    border-color: #1976D2;
+}
+
+.installment-separator {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1976D2;
+    padding-bottom: 8px;
+}
+
+.installment-hint {
+    font-size: 11px;
+    color: #666;
+    margin: 0;
+    font-style: italic;
 }
 
 .budget-list {

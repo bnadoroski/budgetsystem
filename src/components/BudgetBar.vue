@@ -32,6 +32,18 @@
                         </svg>
                         Editar
                     </button>
+                    <button class="context-btn transactions" @click="handleViewTransactions">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <line x1="8" y1="6" x2="21" y2="6"></line>
+                            <line x1="8" y1="12" x2="21" y2="12"></line>
+                            <line x1="8" y1="18" x2="21" y2="18"></line>
+                            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
+                        Ver Lançamentos
+                    </button>
                     <button class="context-btn reset" @click="handleReset">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             stroke-width="2">
@@ -72,6 +84,8 @@ const props = defineProps<{
 const emit = defineEmits<{
     edit: []
     delete: []
+    viewTransactions: []
+    confirmReset: []
 }>()
 
 const budgetStore = useBudgetStore()
@@ -100,11 +114,14 @@ const handleEdit = () => {
     emit('edit')
 }
 
-const handleReset = async () => {
-    if (confirm(`Resetar o budget "${props.budget.name}" para R$ 0,00?`)) {
-        await budgetStore.updateBudget(props.budget.id, { spentValue: 0 })
-        showContextMenu.value = false
-    }
+const handleReset = () => {
+    showContextMenu.value = false
+    emit('confirmReset')
+}
+
+const handleViewTransactions = () => {
+    showContextMenu.value = false
+    emit('viewTransactions')
 }
 
 const handleDelete = () => {
@@ -280,6 +297,11 @@ const handleDragEnd = () => {
 
 .context-btn.edit {
     background: #4CAF50;
+    color: white;
+}
+
+.context-btn.transactions {
+    background: #2196F3;
     color: white;
 }
 

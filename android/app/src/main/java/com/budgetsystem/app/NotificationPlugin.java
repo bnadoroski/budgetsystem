@@ -53,12 +53,17 @@ public class NotificationPlugin extends Plugin {
     }
 
     // Chamado pelo NotificationListenerService quando detecta despesa
-    public void notifyBankExpense(String bank, double amount, String description, String category) {
+    public void notifyBankExpense(String bank, double amount, String description, String category, 
+                                   String merchantName, int installmentNumber, int installmentTotal) {
         Log.d(TAG, "💰 notifyBankExpense chamado:");
         Log.d(TAG, "  - Bank: " + bank);
         Log.d(TAG, "  - Amount: R$ " + amount);
         Log.d(TAG, "  - Description: " + description);
         Log.d(TAG, "  - Category: " + category);
+        Log.d(TAG, "  - Merchant: " + merchantName);
+        if (installmentTotal > 0) {
+            Log.d(TAG, "  - Installments: " + installmentNumber + "/" + installmentTotal);
+        }
 
         JSObject ret = new JSObject();
         ret.put("bank", bank);
@@ -66,9 +71,23 @@ public class NotificationPlugin extends Plugin {
         ret.put("description", description);
         ret.put("category", category);
         ret.put("timestamp", System.currentTimeMillis());
+        
+        if (merchantName != null && !merchantName.isEmpty()) {
+            ret.put("merchantName", merchantName);
+        }
+        
+        if (installmentTotal > 0) {
+            ret.put("installmentNumber", installmentNumber);
+            ret.put("installmentTotal", installmentTotal);
+        }
 
         Log.d(TAG, "📤 Enviando evento 'bankExpense' para o JavaScript");
         notifyListeners("bankExpense", ret);
+    }
+    
+    // Versão legacy para compatibilidade (caso chamado sem novos parâmetros)
+    public void notifyBankExpense(String bank, double amount, String description, String category) {
+        notifyBankExpense(bank, amount, description, category, null, 0, 0);
     }
 
     @PluginMethod

@@ -42,9 +42,21 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    
+    // Firebase Cloud Messaging
+    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    
+    // Testes unitários
     testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.mockito:mockito-core:4.11.0'
+    testImplementation 'org.robolectric:robolectric:4.11.1'
+    
+    // Testes de instrumentação
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    androidTestImplementation 'org.mockito:mockito-android:4.11.0'
+    
     implementation project(':capacitor-cordova-android-plugins')
 }
 

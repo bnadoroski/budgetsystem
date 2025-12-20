@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Budget, BudgetGroup, BudgetHistory, ShareInvite } from '@/types/budget'
+import type { Budget, BudgetGroup, BudgetHistory, ShareInvite, Merchant, MerchantBudgetMapping, Transaction } from '@/types/budget'
 import { db } from '@/config/firebase'
 import {
     collection,
@@ -16,9 +16,12 @@ import {
     setDoc,
     orderBy,
     limit,
-    serverTimestamp
+    serverTimestamp,
+    getDoc
 } from 'firebase/firestore'
 import { useAuthStore } from './auth'
+import FCM from '@/plugins/FCMPlugin'
+import { Capacitor } from '@capacitor/core'
 
 interface PendingExpense {
     id: string
@@ -28,6 +31,9 @@ interface PendingExpense {
     category: string
     timestamp: number
     approved?: boolean
+    merchantName?: string
+    installmentNumber?: number
+    installmentTotal?: number
 }
 
 export const useBudgetStore = defineStore('budget', () => {
@@ -745,6 +751,32 @@ export const useBudgetStore = defineStore('budget', () => {
         console.log('✅ Pending expense added:', newExpense)
     }
 
+    const updatePendingExpense = (expenseId: string, updates: Partial<Omit<PendingExpense, 'id'>>) => {
+        const expenseIndex = pendingExpenses.value.findIndex(e => e.id === expenseId)
+        if (expenseIndex === -1) return
+
+        const currentExpense = pendingExpenses.value[expenseIndex]
+        if (!currentExpense) return
+
+        pendingExpenses.value[expenseIndex] = {
+            id: currentExpense.id,
+            amount: updates.amount ?? currentExpense.amount,
+            bank: updates.bank ?? currentExpense.bank,
+            description: updates.description ?? currentExpense.description,
+            category: updates.category ?? currentExpense.category,
+            timestamp: updates.timestamp ?? currentExpense.timestamp,
+            approved: updates.approved ?? currentExpense.approved,
+            merchantName: updates.merchantName ?? currentExpense.merchantName,
+            installmentNumber: updates.installmentNumber ?? currentExpense.installmentNumber,
+            installmentTotal: updates.installmentTotal ?? currentExpense.installmentTotal
+        }
+
+        // Save to localStorage
+        localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+
+        console.log('✅ Pending expense updated:', pendingExpenses.value[expenseIndex])
+    }
+
     const approvePendingExpense = async (expenseId: string, budgetId: string) => {
         const expense = pendingExpenses.value.find(e => e.id === expenseId)
         if (!expense) return
@@ -933,6 +965,14 @@ export const useBudgetStore = defineStore('budget', () => {
                 respondedAt: serverTimestamp()
             })
 
+            // Envia notificação ao remetente
+            if (invite.budgetIds.length > 0) {
+                const firstBudget = budgets.value.find(b => b.id === invite.budgetIds[0])
+                if (firstBudget) {
+                    await sendInviteNotification(senderId, firstBudget.name, true)
+                }
+            }
+
             console.log('Convite aceito com sucesso')
         } catch (error) {
             console.error('Erro ao aceitar convite:', error)
@@ -942,15 +982,41 @@ export const useBudgetStore = defineStore('budget', () => {
 
     // Recusar convite
     const rejectShareInvite = async (inviteId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
         try {
+            const invite = shareInvites.value.find(i => i.id === inviteId)
+            if (!invite) throw new Error('Convite não encontrado')
+
             await updateDoc(doc(db, 'shareInvites', inviteId), {
                 status: 'rejected',
                 respondedAt: serverTimestamp()
             })
+
+            // Envia notificação ao remetente
+            if (invite.budgetIds.length > 0) {
+                const firstBudget = budgets.value.find(b => b.id === invite.budgetIds[0])
+                if (firstBudget && invite.fromUserId) {
+                    await sendInviteNotification(invite.fromUserId, firstBudget.name, false)
+                }
+            }
+
             console.log('Convite recusado')
         } catch (error) {
             console.error('Erro ao recusar convite:', error)
             throw error
+        }
+    }
+
+    // Marcar convite como visto
+    const markInviteAsViewed = async (inviteId: string) => {
+        try {
+            await updateDoc(doc(db, 'shareInvites', inviteId), {
+                viewedAt: serverTimestamp()
+            })
+        } catch (error) {
+            console.error('Erro ao marcar convite como visto:', error)
         }
     }
 
@@ -1008,6 +1074,446 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
+    // ===== MERCHANT & TRANSACTION SYSTEM =====
+
+    const transactions = ref<Transaction[]>([])
+    const merchants = ref<Merchant[]>([])
+    const merchantMappings = ref<MerchantBudgetMapping[]>([])
+
+    // Normaliza nome para comparação
+    const normalizeName = (name: string): string => {
+        return name
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+            .replace(/[^\w\s]/g, '') // Remove pontuação
+            .trim()
+    }
+
+    // Salva ou atualiza merchant
+    const saveMerchant = async (name: string): Promise<string> => {
+        const authStore = useAuthStore()
+        if (!authStore.userId || !name || name === 'Desconhecido') return ''
+
+        const normalized = normalizeName(name)
+
+        try {
+            // Verifica se já existe
+            const merchantsRef = collection(db, 'merchants')
+            const q = query(merchantsRef, where('normalizedName', '==', normalized))
+            const snapshot = await getDocs(q)
+
+            if (!snapshot.empty) {
+                // Já existe, incrementa contador
+                const existingDoc = snapshot.docs[0]
+                if (existingDoc && existingDoc.id) {
+                    const existingData = existingDoc.data()
+                    await updateDoc(doc(db, 'merchants', existingDoc.id), {
+                        foundCount: (existingData.foundCount || 0) + 1
+                    })
+                    return existingDoc.id
+                }
+                return '' // Retorna vazio se não tem ID
+            } else {
+                // Cria novo
+                const newMerchant = {
+                    name,
+                    normalizedName: normalized,
+                    createdAt: serverTimestamp(),
+                    foundCount: 1
+                }
+                const docRef = await addDoc(collection(db, 'merchants'), newMerchant)
+                return docRef.id
+            }
+        } catch (error) {
+            console.error('Erro ao salvar merchant:', error)
+            return ''
+        }
+    }
+
+    // Obtém sugestão de budget baseado no merchant
+    const getMerchantSuggestion = async (merchantName: string): Promise<{ budgetId?: string, budgetName?: string, confidence: 'high' | 'medium' | 'none' } | null> => {
+        const authStore = useAuthStore()
+        if (!authStore.userId || !merchantName || merchantName === 'Desconhecido') {
+            return { confidence: 'none' }
+        }
+
+        const normalized = normalizeName(merchantName)
+
+        try {
+            // 1. Procura mapeamento do próprio usuário
+            const userMappingsRef = collection(db, 'merchantBudgetMappings')
+            const userQuery = query(
+                userMappingsRef,
+                where('userId', '==', authStore.userId)
+            )
+            const userSnapshot = await getDocs(userQuery)
+
+            for (const doc of userSnapshot.docs) {
+                const mapping = doc.data() as MerchantBudgetMapping
+                if (normalizeName(mapping.merchantName) === normalized) {
+                    return {
+                        budgetId: mapping.budgetId,
+                        budgetName: mapping.budgetName,
+                        confidence: 'high'
+                    }
+                }
+            }
+
+            // 2. Se não encontrou do usuário, procura de outros usuários
+            const allMappingsRef = collection(db, 'merchantBudgetMappings')
+            const allSnapshot = await getDocs(allMappingsRef)
+
+            const budgetCounts: { [budgetName: string]: number } = {}
+
+            for (const doc of allSnapshot.docs) {
+                const mapping = doc.data() as MerchantBudgetMapping
+                if (normalizeName(mapping.merchantName) === normalized) {
+                    budgetCounts[mapping.budgetName] = (budgetCounts[mapping.budgetName] || 0) + mapping.useCount
+                }
+            }
+
+            if (Object.keys(budgetCounts).length > 0) {
+                // Retorna o budget mais usado por outros usuários
+                const entries = Object.entries(budgetCounts).sort((a, b) => b[1] - a[1])
+                if (entries.length === 0 || !entries[0]) return null
+                const mostUsedBudget = entries[0][0]
+                return {
+                    budgetName: mostUsedBudget,
+                    confidence: 'medium'
+                }
+            }
+
+            return { confidence: 'none' }
+        } catch (error) {
+            console.error('Erro ao buscar sugestão de merchant:', error)
+            return { confidence: 'none' }
+        }
+    }
+
+    // Salva mapeamento merchant -> budget
+    const saveMerchantMapping = async (merchantId: string, merchantName: string, budgetId: string, budgetName: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const normalized = normalizeName(merchantName)
+
+            // Verifica se já existe mapeamento do usuário para esse merchant
+            const mappingsRef = collection(db, 'merchantBudgetMappings')
+            const q = query(
+                mappingsRef,
+                where('userId', '==', authStore.userId),
+                where('merchantId', '==', merchantId)
+            )
+            const snapshot = await getDocs(q)
+
+            if (!snapshot.empty) {
+                // Atualiza existente
+                const existingDoc = snapshot.docs[0]
+                if (existingDoc && existingDoc.id) {
+                    const existingData = existingDoc.data()
+                    await updateDoc(doc(db, 'merchantBudgetMappings', existingDoc.id), {
+                        budgetId,
+                        budgetName,
+                        lastUsedAt: serverTimestamp(),
+                        useCount: (existingData.useCount || 0) + 1
+                    })
+                }
+            } else {
+                // Cria novo
+                const newMapping = {
+                    merchantId,
+                    merchantName,
+                    budgetId,
+                    budgetName,
+                    userId: authStore.userId,
+                    createdAt: serverTimestamp(),
+                    lastUsedAt: serverTimestamp(),
+                    useCount: 1
+                }
+                await addDoc(collection(db, 'merchantBudgetMappings'), newMapping)
+            }
+        } catch (error) {
+            console.error('Erro ao salvar mapeamento:', error)
+        }
+    }
+
+    // Salva transação
+    const saveTransaction = async (budgetId: string, expense: PendingExpense) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        const budget = budgets.value.find(b => b.id === budgetId)
+        if (!budget) return
+
+        try {
+            const transaction: Omit<Transaction, 'id'> = {
+                budgetId,
+                budgetName: budget.name,
+                amount: expense.amount,
+                merchantName: expense.merchantName,
+                merchantId: expense.merchantName ? await saveMerchant(expense.merchantName) : undefined,
+                description: expense.description,
+                isInstallment: (expense.installmentTotal || 0) > 0,
+                installmentNumber: expense.installmentNumber,
+                installmentTotal: expense.installmentTotal,
+                createdAt: new Date(expense.timestamp),
+                userId: authStore.userId,
+                bank: expense.bank
+            }
+
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            const docRef = await addDoc(transactionsRef, transaction)
+
+            // Se tem merchant, salva mapeamento
+            if (transaction.merchantId && transaction.merchantName) {
+                await saveMerchantMapping(transaction.merchantId, transaction.merchantName, budgetId, budget.name)
+            }
+
+            return docRef.id
+        } catch (error) {
+            console.error('Erro ao salvar transação:', error)
+        }
+    }
+
+    // Carrega transações de um budget
+    const loadTransactions = async (budgetId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return []
+
+        try {
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            const q = query(
+                transactionsRef,
+                where('budgetId', '==', budgetId),
+                orderBy('createdAt', 'desc')
+            )
+            const snapshot = await getDocs(q)
+
+            return snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt?.toDate() || new Date()
+            })) as Transaction[]
+        } catch (error) {
+            console.error('Erro ao carregar transações:', error)
+            return []
+        }
+    }
+
+    // Atualiza transação
+    const updateTransaction = async (transactionId: string, updates: Partial<Transaction>) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const transactionRef = doc(db, 'users', authStore.userId, 'transactions', transactionId)
+            await updateDoc(transactionRef, updates)
+        } catch (error) {
+            console.error('Erro ao atualizar transação:', error)
+        }
+    }
+
+    // Deleta transação
+    const deleteTransaction = async (transactionId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const transactionRef = doc(db, 'users', authStore.userId, 'transactions', transactionId)
+            await deleteDoc(transactionRef)
+        } catch (error) {
+            console.error('Erro ao deletar transação:', error)
+        }
+    }
+
+    // Transfere transação para outro budget
+    const transferTransaction = async (transactionId: string, newBudgetId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        const newBudget = budgets.value.find(b => b.id === newBudgetId)
+        if (!newBudget) return
+
+        try {
+            await updateTransaction(transactionId, {
+                budgetId: newBudgetId,
+                budgetName: newBudget.name
+            })
+        } catch (error) {
+            console.error('Erro ao transferir transação:', error)
+        }
+    }
+
+    // Atualiza approvePendingExpense para salvar transação
+    const approvePendingExpenseWithTransaction = async (expenseId: string, budgetId: string) => {
+        const expense = pendingExpenses.value.find(e => e.id === expenseId)
+        if (!expense) return
+
+        await addExpense(budgetId, expense.amount)
+        await saveTransaction(budgetId, expense)
+
+        expense.approved = true
+
+        setTimeout(() => {
+            pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
+            savePendingExpensesToFirestore()
+        }, 1000)
+    }
+
+    // Salva pending expenses no Firestore
+    const savePendingExpensesToFirestore = async () => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const pendingRef = doc(db, 'users', authStore.userId, 'data', 'pendingExpenses')
+            await setDoc(pendingRef, {
+                expenses: pendingExpenses.value,
+                updatedAt: serverTimestamp()
+            })
+
+            // Atualiza badge ao salvar
+            updateBadgeCount()
+        } catch (error) {
+            console.error('Erro ao salvar pending expenses no Firestore:', error)
+        }
+    }
+
+    // Carrega pending expenses do Firestore
+    const loadPendingExpensesFromFirestore = async () => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const pendingRef = doc(db, 'users', authStore.userId, 'data', 'pendingExpenses')
+            const snapshot = await getDocs(query(collection(db, 'users', authStore.userId, 'data')))
+
+            const pendingDoc = snapshot.docs.find(d => d.id === 'pendingExpenses')
+            if (pendingDoc) {
+                const data = pendingDoc.data()
+                if (data.expenses) {
+                    pendingExpenses.value = data.expenses
+                    localStorage.setItem('pendingExpenses', JSON.stringify(data.expenses))
+                }
+            }
+        } catch (error) {
+            console.error('Erro ao carregar pending expenses do Firestore:', error)
+        }
+    }
+
+    // ===== NOTIFICAÇÕES =====
+
+    // Envia notificação quando convite é aceito/rejeitado
+    const sendInviteNotification = async (recipientUserId: string, budgetName: string, accepted: boolean) => {
+        if (!Capacitor.isNativePlatform()) return
+
+        try {
+            // Busca token FCM do usuário destinatário
+            const recipientDocRef = doc(db, 'users', recipientUserId)
+            const recipientDoc = await getDoc(recipientDocRef)
+
+            if (!recipientDoc.exists() || !recipientDoc.data().fcmToken) {
+                console.log('Destinatário sem token FCM')
+                return
+            }
+
+            const authStore = useAuthStore()
+
+            // Envia notificação via Cloud Function ou local
+            await FCM.showLocalNotification({
+                title: accepted ? 'Convite Aceito!' : 'Convite Recusado',
+                body: accepted
+                    ? `${authStore.userEmail} aceitou compartilhar o budget "${budgetName}"`
+                    : `${authStore.userEmail} recusou compartilhar o budget "${budgetName}"`,
+                data: {
+                    type: 'invite_response',
+                    budgetName,
+                    accepted: accepted.toString()
+                }
+            })
+        } catch (error) {
+            console.error('Erro ao enviar notificação de convite:', error)
+        }
+    }
+
+    // Envia notificação quando há despesas pendentes há mais de 1 dia
+    const sendPendingExpensesNotification = async () => {
+        if (!Capacitor.isNativePlatform()) return
+
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000)
+        const oldPendingExpenses = pendingExpenses.value.filter(e => e.timestamp < oneDayAgo)
+
+        if (oldPendingExpenses.length === 0) return
+
+        try {
+            const totalAmount = oldPendingExpenses.reduce((sum, e) => sum + e.amount, 0)
+
+            await FCM.showLocalNotification({
+                title: 'Despesas Pendentes',
+                body: `Você tem ${oldPendingExpenses.length} despesa(s) pendente(s) totalizando R$ ${totalAmount.toFixed(2)}`,
+                data: {
+                    type: 'pending_expenses',
+                    count: oldPendingExpenses.length.toString(),
+                    total: totalAmount.toString()
+                }
+            })
+        } catch (error) {
+            console.error('Erro ao enviar notificação de despesas pendentes:', error)
+        }
+    }
+
+    // Envia notificação quando usuário não abre o app há 15+ dias
+    const sendInactivityNotification = async () => {
+        if (!Capacitor.isNativePlatform()) return
+
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const userDocRef = doc(db, 'users', authStore.userId)
+            const userDoc = await getDoc(userDocRef)
+
+            if (!userDoc.exists()) return
+
+            const lastActive = userDoc.data().lastActiveAt
+            if (!lastActive) return
+
+            const fifteenDaysAgo = Date.now() - (15 * 24 * 60 * 60 * 1000)
+            if (new Date(lastActive).getTime() < fifteenDaysAgo) {
+                await FCM.showLocalNotification({
+                    title: 'Sentimos sua falta!',
+                    body: 'Você não acessa o app há mais de 15 dias. Seus budgets podem estar desatualizados!',
+                    data: {
+                        type: 'inactivity',
+                        days: '15'
+                    }
+                })
+            }
+        } catch (error) {
+            console.error('Erro ao enviar notificação de inatividade:', error)
+        }
+    }
+
+    // Atualiza contador de badge baseado em despesas pendentes
+    const updateBadgeCount = async () => {
+        if (!Capacitor.isNativePlatform()) return
+
+        try {
+            const count = pendingExpenses.value.length
+            if (count > 0) {
+                await FCM.setBadge({ count })
+            } else {
+                await FCM.clearBadge()
+            }
+        } catch (error) {
+            console.error('Erro ao atualizar badge:', error)
+        }
+    }
+
+    // ===== FIM NOTIFICAÇÕES =====
+
     return {
         budgets,
         groups,
@@ -1050,6 +1556,7 @@ export const useBudgetStore = defineStore('budget', () => {
         sendShareInvite,
         acceptShareInvite,
         rejectShareInvite,
+        markInviteAsViewed,
         updateSharedBudgets,
         // Monthly History
         loadHistory,
@@ -1058,9 +1565,27 @@ export const useBudgetStore = defineStore('budget', () => {
         checkAndResetBudgets,
         // Pending Expenses
         addPendingExpense,
+        updatePendingExpense,
         approvePendingExpense,
+        approvePendingExpenseWithTransaction,
         rejectPendingExpense,
         removePendingExpense,
+        savePendingExpensesToFirestore,
+        loadPendingExpensesFromFirestore,
+        // Merchants & Transactions
+        saveMerchant,
+        getMerchantSuggestion,
+        saveMerchantMapping,
+        saveTransaction,
+        loadTransactions,
+        updateTransaction,
+        deleteTransaction,
+        transferTransaction,
+        // Notifications
+        sendInviteNotification,
+        sendPendingExpensesNotification,
+        sendInactivityNotification,
+        updateBadgeCount,
         // Mock data
         addMockShareInvite
     }

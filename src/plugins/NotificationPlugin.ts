@@ -20,6 +20,9 @@ export interface BankExpenseEvent {
     description: string
     category: string
     timestamp: number
+    merchantName?: string
+    installmentNumber?: number
+    installmentTotal?: number
 }
 
 const NotificationPlugin = registerPlugin<NotificationPluginPlugin>('NotificationPlugin')

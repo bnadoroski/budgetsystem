@@ -20,9 +20,14 @@ import PermissionModal from '@/components/PermissionModal.vue'
 import EmptyPendingModal from '@/components/EmptyPendingModal.vue'
 import ProfileModal from '@/components/ProfileModal.vue'
 import ShareInviteModal from '@/components/ShareInviteModal.vue'
+import ConfirmResetModal from '@/components/ConfirmResetModal.vue'
+import TransactionsModal from '@/components/TransactionsModal.vue'
+import ToastNotification from '@/components/ToastNotification.vue'
+import { useToast } from '@/composables/useToast'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
+const { toasts } = useToast()
 
 // Error handling state
 const errorMessage = ref<string | null>(null)
@@ -75,6 +80,8 @@ const showPermissionModal = ref(false)
 const showEmptyPendingModal = ref(false)
 const showProfileModal = ref(false)
 const showShareInviteModal = ref(false)
+const showConfirmResetModal = ref(false)
+const showTransactionsModal = ref(false)
 const currentInvite = ref<any>(null)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
 const pendingExpenseToAdd = ref<any>(null)
@@ -82,6 +89,8 @@ const debugInfo = ref('')
 const editingBudgetId = ref<string | undefined>(undefined)
 const editingBudgetData = ref<any>(null)
 const permissionDenied = ref(false)
+const resetBudgetData = ref<{ id: string, name: string, total: number, spent: number } | null>(null)
+const transactionsBudgetData = ref<{ id: string, name: string } | null>(null)
 
 const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
@@ -124,6 +133,14 @@ const handleBackButton = () => {
     showShareInviteModal.value = false
     return
   }
+  if (showConfirmResetModal.value) {
+    showConfirmResetModal.value = false
+    return
+  }
+  if (showTransactionsModal.value) {
+    showTransactionsModal.value = false
+    return
+  }
   if (showPermissionModal.value) {
     showPermissionModal.value = false
     return
@@ -143,6 +160,8 @@ const handleBackButton = () => {
 
 const handleAddBudget = async (name: string, value: number, color: string, groupId?: string) => {
   await budgetStore.addBudget(name, value, color, groupId)
+  const { success } = useToast()
+  success(`Budget "${name}" criado com sucesso!`)
 
   // Se há uma despesa pendente aguardando, adiciona ao budget recém-criado
   if (pendingExpenseToAdd.value) {
@@ -151,6 +170,7 @@ const handleAddBudget = async (name: string, value: number, color: string, group
       await budgetStore.addExpense(newBudget.id, pendingExpenseToAdd.value.amount)
       budgetStore.removePendingExpense(pendingExpenseToAdd.value.id)
       pendingExpenseToAdd.value = null
+      success('Despesa pendente adicionada!')
     }
   }
 
@@ -166,6 +186,8 @@ const handleUpdateBudget = async (id: string, name: string, value: number, color
     color,
     groupId: groupId || undefined
   })
+  const { success } = useToast()
+  success(`Budget "${name}" atualizado!`)
 
   editingBudgetId.value = undefined
   editingBudgetData.value = null
@@ -195,8 +217,43 @@ const handleEditBudget = (budgetId: string) => {
 }
 
 const handleDeleteBudget = async (budgetId: string) => {
+  const budget = budgetStore.budgets.find(b => b.id === budgetId)
   if (confirm('Tem certeza que deseja excluir este budget?')) {
     await budgetStore.deleteBudget(budgetId)
+    const { success } = useToast()
+    success(`Budget "${budget?.name}" excluído!`)
+  }
+}
+
+const handleConfirmReset = (budgetId: string) => {
+  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (budget) {
+    resetBudgetData.value = {
+      id: budget.id,
+      name: budget.name,
+      total: budget.totalValue,
+      spent: budget.spentValue
+    }
+    showConfirmResetModal.value = true
+  }
+}
+
+const handleResetConfirmed = async () => {
+  if (resetBudgetData.value) {
+    await budgetStore.updateBudget(resetBudgetData.value.id, { spentValue: 0 })
+    showConfirmResetModal.value = false
+    resetBudgetData.value = null
+  }
+}
+
+const handleViewTransactions = (budgetId: string) => {
+  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (budget) {
+    transactionsBudgetData.value = {
+      id: budget.id,
+      name: budget.name
+    }
+    showTransactionsModal.value = true
   }
 }
 
@@ -219,7 +276,12 @@ const handleGroupsClick = () => {
 }
 
 const ungroupedBudgets = computed(() => {
-  return budgetStore.budgets.filter(b => !b.groupId)
+  // Filtra budgets não agrupados e não ocultos pelo usuário atual
+  return budgetStore.budgets.filter(b => {
+    if (b.groupId) return false
+    const hiddenBy = b.hiddenBy || []
+    return !hiddenBy.includes(authStore.userId || '')
+  })
 })
 
 // Agrupa budgets com mesmo nome
@@ -273,6 +335,12 @@ const handleProfileClick = () => {
 const handleProfileLogout = () => {
   showProfileModal.value = false
   authStore.signOut()
+}
+
+const handleReviewInvite = (invite: any) => {
+  showProfileModal.value = false
+  currentInvite.value = invite
+  showShareInviteModal.value = true
 }
 
 // Drag & Drop handlers para área sem grupo
@@ -365,10 +433,14 @@ const handleAcceptInvite = async (inviteId: string) => {
   try {
     await budgetStore.acceptShareInvite(inviteId)
     console.log('✅ Convite aceito com sucesso')
+    const { success } = useToast()
+    success('Convite aceito! Budget compartilhado com você.')
     showShareInviteModal.value = false
     currentInvite.value = null
   } catch (error: any) {
     console.error('❌ Erro ao aceitar convite:', error)
+    const { error: showError } = useToast()
+    showError('Erro ao aceitar convite. Tente novamente.')
     handleError(error, 'aceitar convite')
   }
 }
@@ -376,9 +448,13 @@ const handleAcceptInvite = async (inviteId: string) => {
 const handleRejectInvite = async (inviteId: string) => {
   try {
     await budgetStore.rejectShareInvite(inviteId)
+    const { info } = useToast()
+    info('Convite recusado.')
     showShareInviteModal.value = false
     currentInvite.value = null
   } catch (error: any) {
+    const { error: showError } = useToast()
+    showError('Erro ao recusar convite.')
     handleError(error, 'recusar convite')
   }
 }
@@ -386,9 +462,16 @@ const handleRejectInvite = async (inviteId: string) => {
 // Watch para novos convites
 watch(() => budgetStore.shareInvites.length, (newLength, oldLength) => {
   if (newLength > 0 && newLength > (oldLength || 0)) {
-    // Novo convite recebido - mostrar modal
-    currentInvite.value = budgetStore.shareInvites[0]
-    showShareInviteModal.value = true
+    // Novo convite recebido - verificar se ainda não foi visto e está pendente
+    const unviewedInvite = budgetStore.shareInvites.find(inv => 
+      !inv.viewedAt && inv.status === 'pending'
+    )
+    if (unviewedInvite) {
+      currentInvite.value = unviewedInvite
+      showShareInviteModal.value = true
+      // Marcar como visto
+      budgetStore.markInviteAsViewed(unviewedInvite.id)
+    }
   }
 })
 
@@ -605,7 +688,8 @@ onUnmounted(() => {
 
       <!-- Groups -->
       <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" @edit-budget="handleEditBudget"
-        @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup" />
+        @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup"
+        @confirm-reset="handleConfirmReset" @view-transactions="handleViewTransactions" />
 
       <!-- Ungrouped Budgets (com agregação) - Drop Zone -->
       <div class="ungrouped-drop-zone" :class="{ 'drag-over': isUngroupedAreaDragOver }"
@@ -617,7 +701,9 @@ onUnmounted(() => {
         <template v-for="item in aggregatedUngroupedBudgets"
           :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
           <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
-            @delete="() => handleDeleteBudget(item.budget.id)" />
+            @delete="() => handleDeleteBudget(item.budget.id)" 
+            @confirm-reset="() => handleConfirmReset(item.budget.id)"
+            @view-transactions="() => handleViewTransactions(item.budget.id)" />
           <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)" />
         </template>
       </div>
@@ -807,7 +893,7 @@ onUnmounted(() => {
       :edit-budget-group-id="editingBudgetData?.groupId"
       @close="showAddModal = false; selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
       @submit="handleAddBudget" @update="handleUpdateBudget" />
-    <AuthModal :show="showAuthModal" @close="showAuthModal = false" />
+    <AuthModal :show="showAuthModal" :persist="!authStore.isAuthenticated" @close="showAuthModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
@@ -819,9 +905,29 @@ onUnmounted(() => {
       @close="handlePermissionCancel" />
     <EmptyPendingModal :show="showEmptyPendingModal" @close="showEmptyPendingModal = false" />
     <ProfileModal :show="showProfileModal" :email="authStore.user?.email || ''" @close="showProfileModal = false"
-      @logout="handleProfileLogout" />
+      @logout="handleProfileLogout" @review-invite="handleReviewInvite" />
     <ShareInviteModal :show="showShareInviteModal" :invite="currentInvite" @accept="handleAcceptInvite"
       @reject="handleRejectInvite" @close="showShareInviteModal = false" />
+    <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" 
+      :budget-name="resetBudgetData.name"
+      :budget-total="resetBudgetData.total" 
+      :budget-spent="resetBudgetData.spent"
+      @close="showConfirmResetModal = false; resetBudgetData = null" 
+      @confirm="handleResetConfirmed" />
+    <TransactionsModal v-if="transactionsBudgetData" :show="showTransactionsModal"
+      :budget-id="transactionsBudgetData.id"
+      :budget-name="transactionsBudgetData.name"
+      @close="showTransactionsModal = false; transactionsBudgetData = null" />
+    
+    <!-- Toast Notifications -->
+    <ToastNotification 
+      v-for="toast in toasts" 
+      :key="toast.id"
+      :message="toast.message"
+      :type="toast.type"
+      :duration="toast.duration"
+      :show="true"
+      @close="() => {}" />
   </div>
 </template>
 

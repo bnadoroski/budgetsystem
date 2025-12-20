@@ -338,23 +338,23 @@ onMounted(() => {
                             </p>
 
                             <div class="settings-options">
-                                <div class="option-item">
+                                <!-- Moeda comentada - trabalharemos apenas com Real por enquanto -->
+                                <!-- <div class="option-item">
                                     <span>Moeda</span>
                                     <select v-model="currency" class="option-select">
                                         <option value="BRL">Real (R$)</option>
                                         <option value="USD">Dólar ($)</option>
                                         <option value="EUR">Euro (€)</option>
                                     </select>
-                                </div>
+                                </div> -->
 
-                                <!-- Notificações comentadas até implementarmos notificações reais -->
-                                <!-- <div class="option-item">
+                                <div class="option-item">
                                     <span>Notificações</span>
                                     <label class="switch">
                                         <input v-model="notificationsEnabled" type="checkbox" />
                                         <span class="slider"></span>
                                     </label>
-                                </div> -->
+                                </div>
 
                                 <div class="option-item">
                                     <span>Modo Escuro</span>

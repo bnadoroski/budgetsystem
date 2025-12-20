@@ -47,6 +47,9 @@
                             <button v-if="canReset(budget)" class="context-btn reset" @click="handleReset(budget.id)">
                                 Resetar
                             </button>
+                            <button v-if="!canEdit(budget)" class="context-btn hide" @click="handleHide(budget.id)">
+                                {{ isHidden(budget) ? 'Mostrar' : 'Ocultar' }}
+                            </button>
                         </div>
                     </div>
                     <button class="context-btn cancel" @click="showContextMenu = false">Fechar</button>
@@ -94,6 +97,33 @@ const canReset = (budget: any) => {
     return budget.ownerId === authStore.userId
 }
 
+const isHidden = (budget: any) => {
+    return budget.hiddenBy && budget.hiddenBy.includes(authStore.userId)
+}
+
+const handleHide = async (budgetId: string) => {
+    const budget = props.aggregatedBudget.budgets.find(b => b.id === budgetId)
+    if (!budget) return
+    
+    const hiddenBy = budget.hiddenBy || []
+    const isCurrentlyHidden = hiddenBy.includes(authStore.userId || '')
+    
+    if (isCurrentlyHidden) {
+        // Remover do array de ocultos
+        await budgetStore.updateBudget(budgetId, {
+            hiddenBy: hiddenBy.filter(id => id !== authStore.userId)
+        })
+    } else {
+        // Adicionar ao array de ocultos
+        if (!authStore.userId) return
+        await budgetStore.updateBudget(budgetId, {
+            hiddenBy: [...hiddenBy, authStore.userId]
+        })
+    }
+    
+    showContextMenu.value = false
+}
+
 const toggleDisplayMode = () => {
     displayMode.value = displayMode.value === 'percentage' ? 'values' : 'percentage'
 }
@@ -121,9 +151,19 @@ const formatCurrency = (value: number) => {
 }
 
 const formatBudgetValues = () => {
-    return props.aggregatedBudget.budgets
-        .map(b => formatCurrency(b.totalValue))
-        .join(' / ')
+    // Separa budgets do usuário vs compartilhados
+    const userBudgets = props.aggregatedBudget.budgets.filter(b => b.ownerId === authStore.userId)
+    const sharedBudgets = props.aggregatedBudget.budgets.filter(b => b.ownerId !== authStore.userId)
+    
+    const userTotal = userBudgets.reduce((sum, b) => sum + b.totalValue, 0)
+    const sharedTotal = sharedBudgets.reduce((sum, b) => sum + b.totalValue, 0)
+    
+    if (sharedTotal > 0) {
+        // Formato: "R$ 100,00 / R$ 50,00" (você / compartilhado)
+        return `${formatCurrency(userTotal)} / ${formatCurrency(sharedTotal)}`
+    }
+    
+    return formatCurrency(userTotal)
 }
 
 const darkenColor = (color: string) => {
@@ -285,6 +325,11 @@ const darkenColor = (color: string) => {
 
 .context-btn.reset {
     background: #FFA726;
+    color: white;
+}
+
+.context-btn.hide {
+    background: #9E9E9E;
     color: white;
 }
 

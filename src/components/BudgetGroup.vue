@@ -30,7 +30,9 @@
                     Adicionar Budget
                 </button>
                 <BudgetBar v-for="budget in groupBudgets" :key="budget.id" :budget="budget"
-                    @edit="() => emit('editBudget', budget.id)" @delete="() => emit('deleteBudget', budget.id)" />
+                    @edit="() => emit('editBudget', budget.id)" @delete="() => emit('deleteBudget', budget.id)"
+                    @confirm-reset="() => emit('confirmReset', budget.id)"
+                    @view-transactions="() => emit('viewTransactions', budget.id)" />
                 <div v-if="groupBudgets.length === 0" class="no-budgets" @click="handleAddBudgetToGroup">
                     <p>Nenhum budget neste grupo</p>
                     <p class="add-hint">Clique para adicionar</p>
@@ -43,6 +45,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useAuthStore } from '@/stores/auth'
 import type { BudgetGroup } from '@/types/budget'
 import BudgetBar from './BudgetBar.vue'
 
@@ -54,6 +57,8 @@ const emit = defineEmits<{
     editBudget: [budgetId: string]
     deleteBudget: [budgetId: string]
     addBudgetToGroup: [groupId: string]
+    confirmReset: [budgetId: string]
+    viewTransactions: [budgetId: string]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -65,7 +70,13 @@ const handleAddBudgetToGroup = () => {
 }
 
 const groupBudgets = computed(() => {
-    return budgetStore.budgets.filter(b => b.groupId === props.group.id)
+    // Filtra budgets não ocultos pelo usuário atual
+    const authStore = useAuthStore()
+    return budgetStore.budgets.filter(b => {
+        if (b.groupId !== props.group.id) return false
+        const hiddenBy = b.hiddenBy || []
+        return !hiddenBy.includes(authStore.userId || '')
+    })
 })
 
 const groupTotal = computed(() => {

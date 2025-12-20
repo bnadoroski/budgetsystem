@@ -13,6 +13,7 @@ import { auth, db } from '@/config/firebase'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth'
 import { Capacitor } from '@capacitor/core'
+import FCM from '@/plugins/FCMPlugin'
 
 export const useAuthStore = defineStore('auth', () => {
     const user = ref<User | null>(null)
@@ -24,9 +25,19 @@ export const useAuthStore = defineStore('auth', () => {
     const userEmail = computed(() => user.value?.email || null)
 
     // Monitora mudanças no estado de autenticação
-    onAuthStateChanged(auth, (firebaseUser) => {
+    onAuthStateChanged(auth, async (firebaseUser) => {
         user.value = firebaseUser
         loading.value = false
+
+        // Registra token FCM quando usuário loga
+        if (firebaseUser && Capacitor.isNativePlatform()) {
+            try {
+                const { token } = await FCM.getToken()
+                await updateFCMToken(token)
+            } catch (err) {
+                console.error('Erro ao registrar token FCM:', err)
+            }
+        }
     })
 
     // Cria ou atualiza documento de usuário no Firestore
@@ -137,6 +148,11 @@ export const useAuthStore = defineStore('auth', () => {
     // Logout
     const signOut = async () => {
         try {
+            // Remove token FCM ao deslogar
+            if (user.value && Capacitor.isNativePlatform()) {
+                await removeFCMToken()
+            }
+
             await firebaseSignOut(auth)
             user.value = null
             error.value = null
@@ -144,6 +160,36 @@ export const useAuthStore = defineStore('auth', () => {
         } catch (err: any) {
             error.value = 'Erro ao fazer logout'
             return { success: false, error: error.value }
+        }
+    }
+
+    // Atualiza token FCM no Firestore
+    const updateFCMToken = async (token: string) => {
+        if (!user.value) return
+
+        try {
+            const userDocRef = doc(db, 'users', user.value.uid)
+            await setDoc(userDocRef, {
+                fcmToken: token,
+                fcmTokenUpdatedAt: new Date().toISOString()
+            }, { merge: true })
+        } catch (err) {
+            console.error('Erro ao atualizar token FCM:', err)
+        }
+    }
+
+    // Remove token FCM do Firestore
+    const removeFCMToken = async () => {
+        if (!user.value) return
+
+        try {
+            const userDocRef = doc(db, 'users', user.value.uid)
+            await setDoc(userDocRef, {
+                fcmToken: null,
+                fcmTokenUpdatedAt: new Date().toISOString()
+            }, { merge: true })
+        } catch (err) {
+            console.error('Erro ao remover token FCM:', err)
         }
     }
 

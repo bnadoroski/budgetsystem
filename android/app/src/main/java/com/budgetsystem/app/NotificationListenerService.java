@@ -3,16 +3,80 @@ package com.budgetsystem.app;
 import android.service.notification.StatusBarNotification;
 import android.os.Bundle;
 import android.util.Log;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Intent;
+import android.os.Build;
+import android.os.PowerManager;
+import androidx.core.app.NotificationCompat;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class NotificationListenerService extends android.service.notification.NotificationListenerService {
     private static final String TAG = "BudgetNotifListener";
+    private static final String CHANNEL_ID = "budget_listener_channel";
+    private static final int NOTIFICATION_ID = 1001;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "🎧 NotificationListenerService CRIADO!");
+        
+        // Criar canal de notificação para foreground service
+        createNotificationChannel();
+        
+        // Iniciar como foreground service para manter ativo
+        startForeground(NOTIFICATION_ID, createNotification());
+        
+        // Adquirir wake lock parcial para processar notificações em background
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "BudgetSystem::NotificationWakeLock"
+        );
+        wakeLock.acquire();
+        
+        Log.d(TAG, "✅ Foreground service iniciado e wake lock adquirido!");
+    }
+    
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Budget System Listener",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            channel.setDescription("Monitora notificações bancárias");
+            channel.setShowBadge(false);
+            
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+    
+    private Notification createNotification() {
+        Intent intent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            this, 
+            0, 
+            intent, 
+            PendingIntent.FLAG_IMMUTABLE
+        );
+        
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Budget System")
+            .setContentText("Monitorando notificações bancárias")
+            .setSmallIcon(android.R.drawable.ic_menu_info_details)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+        
+        return builder.build();
     }
 
     @Override
@@ -25,6 +89,21 @@ public class NotificationListenerService extends android.service.notification.No
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
         Log.w(TAG, "⚠️ NotificationListener DESCONECTADO!");
+        
+        // Tentar reconectar
+        requestRebind(null);
+    }
+    
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        
+        // Liberar wake lock
+        if (wakeLock != null && wakeLock.isHeld()) {
+            wakeLock.release();
+        }
+        
+        Log.d(TAG, "🛑 NotificationListenerService DESTRUÍDO!");
     }
 
     @Override
@@ -95,6 +174,20 @@ public class NotificationListenerService extends android.service.notification.No
                 Log.d(TAG, "⚠️ Nenhum valor encontrado na notificação");
                 return;
             }
+            
+            // Extrair nome do comércio/estabelecimento
+            String merchantName = extractMerchantName(fullText, title, text);
+            Log.d(TAG, "🏪 Comércio identificado: " + merchantName);
+            
+            // Detectar parcelas
+            int installmentNumber = 0;
+            int installmentTotal = 0;
+            InstallmentInfo installmentInfo = extractInstallmentInfo(fullText);
+            if (installmentInfo != null) {
+                installmentNumber = installmentInfo.current;
+                installmentTotal = installmentInfo.total;
+                Log.d(TAG, "💳 Parcelas detectadas: " + installmentNumber + "/" + installmentTotal);
+            }
 
             // Identifica banco pelo package
             String bank = identifyBank(packageName);
@@ -115,7 +208,7 @@ public class NotificationListenerService extends android.service.notification.No
             NotificationPlugin plugin = NotificationPlugin.getInstance();
             if (plugin != null) {
                 Log.d(TAG, "📤 Enviando para NotificationPlugin...");
-                plugin.notifyBankExpense(bank, amount, description, category);
+                plugin.notifyBankExpense(bank, amount, description, category, merchantName, installmentNumber, installmentTotal);
                 Log.d(TAG, "✅ Enviado com sucesso!");
             } else {
                 Log.e(TAG, "❌ NotificationPlugin não está disponível!");
@@ -168,6 +261,119 @@ public class NotificationListenerService extends android.service.notification.No
             return "Transferência";
         }
         return "Outros";
+    }
+    
+    private String extractMerchantName(String fullText, String title, String text) {
+        // Tenta extrair nome do estabelecimento de padrões comuns
+        // Padrão: "Compra em NOME DO ESTABELECIMENTO"
+        Pattern pattern1 = Pattern.compile("compra\\s+(?:em|no|na)\\s+([^\\n\\r]+?)\\s+(?:r\\$|no valor|aprovada)", Pattern.CASE_INSENSITIVE);
+        Matcher matcher1 = pattern1.matcher(text);
+        if (matcher1.find()) {
+            String merchant = matcher1.group(1).trim();
+            // Limitar tamanho e limpar
+            if (merchant.length() > 50) merchant = merchant.substring(0, 50);
+            return capitalizeWords(merchant);
+        }
+        
+        // Padrão: "NOME - valor"
+        Pattern pattern2 = Pattern.compile("^([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ\\s\\.]+)\\s*-\\s*r\\$", Pattern.CASE_INSENSITIVE);
+        Matcher matcher2 = pattern2.matcher(text);
+        if (matcher2.find()) {
+            String merchant = matcher2.group(1).trim();
+            return capitalizeWords(merchant);
+        }
+        
+        // Padrão: PIX para "Nome Pessoa"
+        Pattern pattern3 = Pattern.compile("pix\\s+para\\s+([^\\n\\r]+?)\\s+(?:r\\$|no valor)", Pattern.CASE_INSENSITIVE);
+        Matcher matcher3 = pattern3.matcher(text);
+        if (matcher3.find()) {
+            String merchant = matcher3.group(1).trim();
+            if (merchant.length() > 50) merchant = merchant.substring(0, 50);
+            return capitalizeWords(merchant);
+        }
+        
+        // Se não encontrou padrão, retorna "Desconhecido"
+        return "Desconhecido";
+    }
+    
+    private String capitalizeWords(String text) {
+        // Capitaliza primeira letra de cada palavra
+        String[] words = text.toLowerCase().split("\\s+");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (word.length() > 0) {
+                result.append(Character.toUpperCase(word.charAt(0)));
+                if (word.length() > 1) {
+                    result.append(word.substring(1));
+                }
+                result.append(" ");
+            }
+        }
+        return result.toString().trim();
+    }
+    
+    private InstallmentInfo extractInstallmentInfo(String text) {
+        // Padrões comuns de parcelas:
+        // "3/12", "parcela 3 de 12", "3 de 12", "03/12"
+        
+        // Padrão: X/Y
+        Pattern pattern1 = Pattern.compile("(\\d{1,2})/(\\d{1,2})");
+        Matcher matcher1 = pattern1.matcher(text);
+        if (matcher1.find()) {
+            try {
+                int current = Integer.parseInt(matcher1.group(1));
+                int total = Integer.parseInt(matcher1.group(2));
+                if (current > 0 && total > 0 && current <= total) {
+                    return new InstallmentInfo(current, total);
+                }
+            } catch (NumberFormatException e) {
+                // Ignora
+            }
+        }
+        
+        // Padrão: "parcela X de Y"
+        Pattern pattern2 = Pattern.compile("parcela\\s+(\\d{1,2})\\s+de\\s+(\\d{1,2})", Pattern.CASE_INSENSITIVE);
+        Matcher matcher2 = pattern2.matcher(text);
+        if (matcher2.find()) {
+            try {
+                int current = Integer.parseInt(matcher2.group(1));
+                int total = Integer.parseInt(matcher2.group(2));
+                if (current > 0 && total > 0 && current <= total) {
+                    return new InstallmentInfo(current, total);
+                }
+            } catch (NumberFormatException e) {
+                // Ignora
+            }
+        }
+        
+        // Padrão: "X de Y"
+        Pattern pattern3 = Pattern.compile("(\\d{1,2})\\s+de\\s+(\\d{1,2})");
+        Matcher matcher3 = pattern3.matcher(text);
+        if (matcher3.find()) {
+            try {
+                int current = Integer.parseInt(matcher3.group(1));
+                int total = Integer.parseInt(matcher3.group(2));
+                // Verifica se parece com parcela (ambos <= 99)
+                if (current > 0 && total > 1 && current <= total && total <= 99) {
+                    return new InstallmentInfo(current, total);
+                }
+            } catch (NumberFormatException e) {
+                // Ignora
+            }
+        }
+        
+        return null; // Não é parcelado
+    }
+    
+    // Classe helper para info de parcelas
+    private static class InstallmentInfo {
+        int current;
+        int total;
+        
+        InstallmentInfo(int current, int total) {
+            this.current = current;
+            this.total = total;
+        }
     }
 
     @Override
