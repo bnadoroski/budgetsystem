@@ -22,17 +22,34 @@
                         <!-- Share Section -->
                         <div class="action-section share-section">
                             <h3>Compartilhamento</h3>
-                            <p class="section-description">Compartilhe budgets e valor total com seu cônjuge/parceiro(a)
-                            </p>
-
-                            <!-- Campo de email -->
-                            <div class="share-input-group">
-                                <input v-model="shareEmail" type="email" placeholder="email@exemplo.com"
-                                    class="share-input" />
-                                <button class="btn-share" @click="handleShare" :disabled="!shareEmail || isSharing">
-                                    <span v-if="isSharing">Enviando...</span>
-                                    <span v-else>Enviar<br>Convite</span>
+                            
+                            <!-- Status do compartilhamento -->
+                            <div v-if="shareStatus.type !== 'none'" class="share-status-box" :class="shareStatus.type">
+                                <div class="status-icon">
+                                    <span v-if="shareStatus.type === 'waiting'">⏳</span>
+                                    <span v-else-if="shareStatus.type === 'active'">✅</span>
+                                    <span v-else-if="shareStatus.type === 'rejected'">❌</span>
+                                </div>
+                                <div class="status-content">
+                                    <p class="status-title">{{ shareStatus.title }}</p>
+                                    <p class="status-email">{{ shareStatus.email }}</p>
+                                </div>
+                                <button v-if="shareStatus.type === 'rejected'" class="btn-clear-status" @click="clearRejectedInvite">
+                                    Entendi
                                 </button>
+                            </div>
+
+                            <!-- Campo de email para novo convite (só mostra se não tem compartilhamento ativo) -->
+                            <div v-if="!hasActiveSharing && shareStatus.type !== 'waiting'" class="share-input-section">
+                                <p class="section-description">Compartilhe budgets e valor total com seu cônjuge/parceiro(a)</p>
+                                <div class="share-input-group">
+                                    <input v-model="shareEmail" type="email" placeholder="email@exemplo.com"
+                                        class="share-input" />
+                                    <button class="btn-share" @click="handleShare" :disabled="!shareEmail || isSharing">
+                                        <span v-if="isSharing">Enviando...</span>
+                                        <span v-else>Enviar<br>Convite</span>
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- Mensagens de feedback -->
@@ -47,53 +64,39 @@
                                 </div>
                             </Transition>
 
-                            <!-- Lista de compartilhamentos ativos -->
-                            <div v-if="activeShares.length > 0" class="shared-list">
-                                <p class="shared-label">Compartilhado com:</p>
-                                <div v-for="share in activeShares" :key="share.email" class="shared-user">
-                                    <div class="share-info">
-                                        <span class="share-email">{{ share.email }}</span>
-                                        <span class="share-status">{{ share.budgetCount }} budget{{ share.budgetCount >
-                                            1 ? 's' : '' }}</span>
+                            <!-- Convites pendentes que EU RECEBI -->
+                            <div v-if="receivedPendingInvites.length > 0" class="pending-invites">
+                                <p class="shared-label">Convites Recebidos:</p>
+                                <div v-for="invite in receivedPendingInvites" :key="invite.id" class="pending-invite received">
+                                    <div class="invite-info">
+                                        <span class="invite-from">{{ invite.fromUserEmail }}</span>
+                                        <span class="invite-count">{{ invite.budgetIds.length }} budget{{ invite.budgetIds.length > 1 ? 's' : '' }}</span>
                                     </div>
-                                    <button class="btn-remove" @click="handleRemoveShare(share.email)"
-                                        title="Remover compartilhamento">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"
-                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                                        </svg>
+                                    <button class="btn-review" @click="handleReviewInvite(invite)">
+                                        Ver Convite
                                     </button>
                                 </div>
                             </div>
 
-                            <!-- Convites pendentes -->
-                            <div v-if="pendingInvites.length > 0" class="pending-invites">
-                                <p class="shared-label">Convites Pendentes:</p>
-                                <div v-for="invite in pendingInvites" :key="invite.id" class="pending-invite">
-                                    <div class="invite-info">
-                                        <span class="invite-type" v-if="invite.fromUserId === authStore.userId">➡️
-                                            Enviado para:</span>
-                                        <span class="invite-type" v-else>⬅️ Recebido de:</span>
-                                        <span class="invite-email">{{ invite.fromUserId === authStore.userId ?
-                                            invite.toUserEmail : invite.fromUserEmail }}</span>
-                                    </div>
-                                    <button
-                                        v-if="invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase()"
-                                        class="btn-review" @click="handleReviewInvite(invite)">
-                                        Ver
-                                    </button>
-                                </div>
+                            <!-- Opção para desfazer compartilhamento ativo -->
+                            <div v-if="hasActiveSharing" class="active-share-actions">
+                                <button class="btn-remove-share" @click="handleRemoveShare(shareStatus.email)">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                    Encerrar Compartilhamento
+                                </button>
                             </div>
                         </div>
 
                         <!-- Divider -->
                         <div class="divider"></div>
 
-                        <!-- Manage Shared Budgets Section -->
+                        <!-- Manage Shared Budgets Section - Para ambos os participantes -->
                         <div v-if="hasActiveSharing" class="action-section manage-budgets-section">
                             <h3>Gerenciar Budgets Compartilhados</h3>
-                            <p class="section-description">Escolha quais budgets você quer compartilhar</p>
+                            <p class="section-description">Escolha quais dos SEUS budgets você quer compartilhar</p>
 
                             <div class="budgets-list">
                                 <label v-for="budget in myBudgets" :key="budget.id" class="budget-checkbox">
@@ -189,7 +192,63 @@ const updateError = ref('')
 const showRemoveShareConfirm = ref(false)
 const emailToRemove = ref('')
 
-// Compartilhamentos ativos (convites aceitos)
+// Status consolidado do compartilhamento
+const shareStatus = computed(() => {
+    // 1. Verifica se há convite rejeitado não notificado (prioridade)
+    const rejectedInvite = budgetStore.shareInvites.find(invite => 
+        invite.fromUserId === authStore.userId && 
+        invite.status === 'rejected' &&
+        !invite.senderNotifiedAt
+    )
+    if (rejectedInvite) {
+        return {
+            type: 'rejected' as const,
+            title: 'Convite recusado por',
+            email: rejectedInvite.toUserEmail
+        }
+    }
+
+    // 2. Verifica se há compartilhamento ativo
+    const acceptedInvite = budgetStore.shareInvites.find(invite => 
+        invite.status === 'accepted' &&
+        (invite.fromUserId === authStore.userId || invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
+    )
+    if (acceptedInvite) {
+        const partnerEmail = acceptedInvite.fromUserId === authStore.userId 
+            ? acceptedInvite.toUserEmail 
+            : acceptedInvite.fromUserEmail
+        return {
+            type: 'active' as const,
+            title: 'Compartilhando com',
+            email: partnerEmail
+        }
+    }
+
+    // 3. Verifica se há convite pendente que EU ENVIEI
+    const pendingInvite = budgetStore.shareInvites.find(invite => 
+        invite.fromUserId === authStore.userId && 
+        invite.status === 'pending'
+    )
+    if (pendingInvite) {
+        return {
+            type: 'waiting' as const,
+            title: 'Aguardando resposta de',
+            email: pendingInvite.toUserEmail
+        }
+    }
+
+    return { type: 'none' as const, title: '', email: '' }
+})
+
+// Convites pendentes que EU RECEBI (para mostrar botão "Ver Convite")
+const receivedPendingInvites = computed(() => {
+    return budgetStore.shareInvites.filter(invite =>
+        invite.status === 'pending' &&
+        invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase()
+    )
+})
+
+// Compartilhamentos ativos (convites aceitos) - mantido para compatibilidade
 const activeShares = computed(() => {
     const shares: { email: string, budgetCount: number }[] = []
 
@@ -206,7 +265,7 @@ const activeShares = computed(() => {
     return shares
 })
 
-// Convites pendentes
+// Convites pendentes (todos) - mantido para compatibilidade
 const pendingInvites = computed(() => {
     return budgetStore.shareInvites.filter(invite =>
         invite.status === 'pending' &&
@@ -234,19 +293,39 @@ const hasActiveSharing = computed(() => {
     )
 })
 
+// Verificar se sou o DONO do compartilhamento (quem enviou o convite)
+// Apenas o dono pode gerenciar quais budgets compartilhar
+const isShareOwner = computed(() => {
+    return budgetStore.shareInvites.some(invite =>
+        invite.fromUserId === authStore.userId && invite.status === 'accepted'
+    )
+})
+
 // Inicializar budgets selecionados com os que já estão compartilhados
+// Obter o ID do parceiro de compartilhamento
+const partnerId = computed(() => {
+    const acceptedInvite = budgetStore.shareInvites.find(invite =>
+        invite.status === 'accepted' &&
+        (invite.fromUserId === authStore.userId || 
+         invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
+    )
+    if (!acceptedInvite) return null
+    return acceptedInvite.fromUserId === authStore.userId
+        ? acceptedInvite.toUserId
+        : acceptedInvite.fromUserId
+})
+
 const initializeSelectedBudgets = () => {
     selectedBudgetIds.value.clear()
 
-    // Buscar convites aceitos onde eu sou o remetente
-    const myInvites = budgetStore.shareInvites.filter(invite =>
-        invite.fromUserId === authStore.userId &&
-        invite.status === 'accepted'
-    )
-
-    myInvites.forEach(invite => {
-        invite.budgetIds.forEach(id => selectedBudgetIds.value.add(id))
-    })
+    // Buscar meus budgets que já estão compartilhados com o parceiro
+    if (partnerId.value) {
+        myBudgets.value.forEach(budget => {
+            if (budget.sharedWith?.includes(partnerId.value!)) {
+                selectedBudgetIds.value.add(budget.id)
+            }
+        })
+    }
 }
 
 // Verificar se um budget está compartilhado
@@ -314,16 +393,19 @@ const handleShare = async () => {
 }
 
 const handleRemoveShare = async (email: string) => {
+    console.log('[REMOVE_SHARE] Clicou em remover, email:', email)
     emailToRemove.value = email
     showRemoveShareConfirm.value = true
+    console.log('[REMOVE_SHARE] showRemoveShareConfirm:', showRemoveShareConfirm.value)
 }
 
 const confirmRemoveShare = async () => {
+    console.log('[REMOVE_SHARE] Confirmou remover, email:', emailToRemove.value)
     try {
-        // TODO: Implementar remoção de compartilhamento
-        console.log('Remover compartilhamento com:', emailToRemove.value)
+        await budgetStore.removeSharing(emailToRemove.value)
+        console.log('[REMOVE_SHARE] Removido com sucesso')
     } catch (error) {
-        console.error('Erro ao remover compartilhamento:', error)
+        console.error('[REMOVE_SHARE] Erro ao remover compartilhamento:', error)
     }
     emailToRemove.value = ''
     showRemoveShareConfirm.value = false
@@ -332,6 +414,18 @@ const confirmRemoveShare = async () => {
 const cancelRemoveShare = () => {
     emailToRemove.value = ''
     showRemoveShareConfirm.value = false
+}
+
+// Limpar convite rejeitado (marcar como notificado)
+const clearRejectedInvite = async () => {
+    const rejectedInvite = budgetStore.shareInvites.find(invite => 
+        invite.fromUserId === authStore.userId && 
+        invite.status === 'rejected' &&
+        !invite.senderNotifiedAt
+    )
+    if (rejectedInvite) {
+        await budgetStore.markInviteSenderNotified(rejectedInvite.id)
+    }
 }
 
 const handleReviewInvite = (invite: any) => {
@@ -592,19 +686,21 @@ const updateSharing = async () => {
 
 .pending-invite {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
     padding: 10px 12px;
     background: #fff3e0;
     border-radius: 8px;
     margin-bottom: 6px;
+    gap: 8px;
 }
 
 .invite-info {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     flex: 1;
+    min-width: 0;
 }
 
 .invite-type {
@@ -618,15 +714,31 @@ const updateSharing = async () => {
 }
 
 .btn-review {
-    padding: 6px 14px;
+    padding: 6px 12px;
     background: linear-gradient(135deg, #1ec8b0 0%, #2764e7 100%);
     color: white;
     border: none;
     border-radius: 6px;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
+    align-self: flex-end;
+}
+
+@media (max-width: 360px) {
+    .pending-invite {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .pending-invite .btn-review {
+        width: 100%;
+        text-align: center;
+        margin-top: 4px;
+    }
 }
 
 .btn-review:hover {
@@ -817,5 +929,241 @@ const updateSharing = async () => {
 .modal-enter-from .modal-content,
 .modal-leave-to .modal-content {
     transform: scale(0.9) translateY(20px);
+}
+
+/* Share Status Box */
+.share-status-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.share-status-box.waiting {
+    background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+    border: 1px solid #ffb74d;
+}
+
+.share-status-box.active {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 1px solid #81c784;
+}
+
+.share-status-box.rejected {
+    background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
+    border: 1px solid #e57373;
+}
+
+.status-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.status-content {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.status-title {
+    font-size: 11px;
+    color: #666;
+    margin: 0 0 2px 0;
+}
+
+.status-email {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+    word-break: break-all;
+}
+
+.btn-clear-status {
+    padding: 6px 12px;
+    background: white;
+    border: 1px solid #e57373;
+    color: #c62828;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.btn-clear-status:hover {
+    background: #ffebee;
+}
+
+/* Responsivo para status box */
+@media (max-width: 360px) {
+    .share-status-box {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .share-status-box .btn-clear-status {
+        width: 100%;
+        margin-top: 8px;
+    }
+}
+
+.share-input-section {
+    margin-bottom: 16px;
+}
+
+.pending-invite.received {
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border: 1px solid #64b5f6;
+}
+
+.pending-invite .invite-from {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+    word-break: break-all;
+}
+
+.pending-invite .invite-count {
+    font-size: 11px;
+    color: #666;
+}
+
+.active-share-actions {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.btn-remove-share {
+    width: 100%;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #e57373;
+    color: #c62828;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.btn-remove-share:hover {
+    background: #ffebee;
+}
+
+/* Dark mode - usando body.dark-mode como padrão do app */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .profile-header {
+    background: linear-gradient(135deg, #1a3a5c 0%, #0f2336 100%);
+}
+
+body.dark-mode .profile-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .profile-header p {
+    color: #aaa;
+}
+
+body.dark-mode .action-section h3 {
+    color: #fff;
+}
+
+body.dark-mode .section-description {
+    color: #aaa;
+}
+
+body.dark-mode .share-input {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .share-input::placeholder {
+    color: #666;
+}
+
+body.dark-mode .divider {
+    background: #3a3a4e;
+}
+
+body.dark-mode .share-status-box.waiting {
+    background: linear-gradient(135deg, #3a3020 0%, #4a4030 100%);
+    border-color: #8a6030;
+}
+
+body.dark-mode .share-status-box.active {
+    background: linear-gradient(135deg, #1a3a20 0%, #2a4a30 100%);
+    border-color: #4a8a50;
+}
+
+body.dark-mode .share-status-box.rejected {
+    background: linear-gradient(135deg, #3a2020 0%, #4a2a2a 100%);
+    border-color: #8a4040;
+}
+
+body.dark-mode .status-title {
+    color: #aaa;
+}
+
+body.dark-mode .status-email {
+    color: #fff;
+}
+
+body.dark-mode .pending-invite.received {
+    background: linear-gradient(135deg, #1a2a3a 0%, #2a3a4a 100%);
+    border-color: #3a5a7a;
+}
+
+body.dark-mode .invite-from {
+    color: #fff;
+}
+
+body.dark-mode .invite-count {
+    color: #aaa;
+}
+
+body.dark-mode .shared-label {
+    color: #aaa;
+}
+
+body.dark-mode .btn-remove-share {
+    background: #3a2020;
+    border-color: #5a3a3a;
+    color: #ff7070;
+}
+
+body.dark-mode .btn-remove-share:hover {
+    background: #4a2a2a;
+}
+
+body.dark-mode .active-share-actions {
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .pending-invites {
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .btn-danger {
+    background: #3a2020;
+    color: #ff7070;
+}
+
+body.dark-mode .btn-danger:hover {
+    background: #4a2a2a;
 }
 </style>

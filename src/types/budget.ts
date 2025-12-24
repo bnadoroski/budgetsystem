@@ -43,6 +43,7 @@ export interface ShareInvite {
     createdAt: Date
     respondedAt?: Date
     viewedAt?: Date // Quando o usuário viu o convite pela primeira vez
+    senderNotifiedAt?: Date // Quando o remetente foi notificado da resposta
 }
 
 export interface Merchant {

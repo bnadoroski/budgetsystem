@@ -828,4 +828,77 @@ h2 {
 .modal-leave-to {
     opacity: 0;
 }
+
+/* Dark mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header {
+    background: linear-gradient(135deg, #1a3a5c 0%, #0f2336 100%);
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .expense-card {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .expense-description {
+    color: #fff;
+}
+
+body.dark-mode .expense-bank {
+    color: #aaa;
+}
+
+body.dark-mode .expense-amount {
+    color: #ff6b6b;
+}
+
+body.dark-mode .budget-selector-label {
+    color: #aaa;
+}
+
+body.dark-mode .budget-selector {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .expense-installment {
+    background: #1a2a3e;
+}
+
+body.dark-mode .installment-text {
+    color: #64b5f6;
+}
+
+body.dark-mode .expense-suggestion {
+    background: #1a3a2a;
+}
+
+body.dark-mode .suggestion-label {
+    color: #aaa;
+}
+
+body.dark-mode .empty-state {
+    color: #aaa;
+}
+
+body.dark-mode .btn-reject {
+    background: #3a2a2a;
+    color: #ff7070;
+}
+
+body.dark-mode .btn-reject:hover {
+    background: #4a3a3a;
+}
+
+body.dark-mode .delete-all-section {
+    border-top-color: #3a3a4e;
+}
 </style>

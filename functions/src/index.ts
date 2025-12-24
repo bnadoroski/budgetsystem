@@ -180,18 +180,18 @@ export const sendInviteNotification = onRequest(async (req, res) => {
             // TODO: Enviar email para o destinatário
             // Descomente quando configurar nodemailer:
             /*
-            await transporter.sendMail({
-              from: process.env.EMAIL_USER,
-              to: toUserEmail,
-              subject: notificationTitle,
-              html: `
-                <h2>${notificationTitle}</h2>
-                <p>${notificationBody}</p>
-                <p>Abra o app Budget System para aceitar ou rejeitar o convite.</p>
-              `
-            })
-            logger.info("Email sent to recipient", {toUserEmail})
-            */
+                  await transporter.sendMail({
+                    from: process.env.EMAIL_USER,
+                    to: toUserEmail,
+                    subject: notificationTitle,
+                    html: `
+                      <h2>${notificationTitle}</h2>
+                      <p>${notificationBody}</p>
+                      <p>Abra o app Budget System.</p>
+                    `
+                  })
+                  logger.info("Email sent to recipient", {toUserEmail})
+                  */
         } else if (type === "invite_accepted") {
             notificationTitle = "✅ Convite aceito!";
             notificationBody =
@@ -222,16 +222,16 @@ export const sendInviteNotification = onRequest(async (req, res) => {
 
             // TODO: Email para quem enviou
             /*
-            await transporter.sendMail({
-              from: process.env.EMAIL_USER,
-              to: fromUserEmail,
-              subject: notificationTitle,
-              html: `
-                <h2>${notificationTitle}</h2>
-                <p>${notificationBody}</p>
-              `
-            })
-            */
+                  await transporter.sendMail({
+                    from: process.env.EMAIL_USER,
+                    to: fromUserEmail,
+                    subject: notificationTitle,
+                    html: `
+                      <h2>${notificationTitle}</h2>
+                      <p>${notificationBody}</p>
+                    `
+                  })
+                  */
         } else if (type === "invite_rejected") {
             notificationTitle = "❌ Convite recusado";
             notificationBody =
@@ -262,16 +262,16 @@ export const sendInviteNotification = onRequest(async (req, res) => {
 
             // TODO: Email para quem enviou
             /*
-            await transporter.sendMail({
-              from: process.env.EMAIL_USER,
-              to: fromUserEmail,
-              subject: notificationTitle,
-              html: `
-                <h2>${notificationTitle}</h2>
-                <p>${notificationBody}</p>
-              `
-            })
-            */
+                  await transporter.sendMail({
+                    from: process.env.EMAIL_USER,
+                    to: fromUserEmail,
+                    subject: notificationTitle,
+                    html: `
+                      <h2>${notificationTitle}</h2>
+                      <p>${notificationBody}</p>
+                    `
+                  })
+                  */
         }
 
         logger.info("Invite notification processed successfully", { type, inviteId });

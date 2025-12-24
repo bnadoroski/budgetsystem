@@ -262,35 +262,33 @@ h2 {
     transform: translateY(30px) scale(0.95);
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-    .modal-content {
-        background: #1e1e2e;
-    }
+/* Dark mode - usando body.dark-mode como padrão do app */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
 
-    h2 {
-        color: #fff;
-    }
+body.dark-mode h2 {
+    color: #fff;
+}
 
-    .message {
-        color: #aaa;
-    }
+body.dark-mode .message {
+    color: #aaa;
+}
 
-    .message strong {
-        color: #fff;
-    }
+body.dark-mode .message strong {
+    color: #fff;
+}
 
-    .details-slot {
-        background: #2a2a3e;
-    }
+body.dark-mode .details-slot {
+    background: #2a2a3e;
+}
 
-    .btn-cancel {
-        background: #2a2a3e;
-        color: #aaa;
-    }
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
 
-    .btn-cancel:hover {
-        background: #353550;
-    }
+body.dark-mode .btn-cancel:hover {
+    background: #353550;
 }
 </style>

@@ -20,6 +20,7 @@ import PermissionModal from '@/components/PermissionModal.vue'
 import EmptyPendingModal from '@/components/EmptyPendingModal.vue'
 import ProfileModal from '@/components/ProfileModal.vue'
 import ShareInviteModal from '@/components/ShareInviteModal.vue'
+import InviteResponseModal from '@/components/InviteResponseModal.vue'
 import ConfirmResetModal from '@/components/ConfirmResetModal.vue'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
 import TransactionsModal from '@/components/TransactionsModal.vue'
@@ -82,6 +83,8 @@ const showPermissionModal = ref(false)
 const showEmptyPendingModal = ref(false)
 const showProfileModal = ref(false)
 const showShareInviteModal = ref(false)
+const showInviteResponseModal = ref(false)
+const inviteResponseData = ref<{ isAccepted: boolean, email: string }>({ isAccepted: false, email: '' })
 const showConfirmResetModal = ref(false)
 const showConfirmDeleteModal = ref(false)
 const showTransactionsModal = ref(false)
@@ -141,6 +144,10 @@ const handleBackButton = () => {
   }
   if (showShareInviteModal.value) {
     showShareInviteModal.value = false
+    return
+  }
+  if (showInviteResponseModal.value) {
+    showInviteResponseModal.value = false
     return
   }
   if (showConfirmResetModal.value) {
@@ -510,14 +517,46 @@ const handleRejectInvite = async (inviteId: string) => {
   }
 }
 
-// Watch para novos convites (apenas quando um novo realmente chega)
+// Watch para novos convites e respostas de convites
 watch(() => budgetStore.shareInvites, (newInvites) => {
-  // Verificar se tem convite não visto E modal não está aberta (evita duplicação)
-  if (!showShareInviteModal.value) {
+  // 1. Verificar se tem convite que EU ENVIEI e foi respondido (sem notificação ao remetente)
+  const respondedInvite = newInvites.find(inv =>
+    inv.fromUserId === authStore.userId &&
+    (inv.status === 'accepted' || inv.status === 'rejected') &&
+    !inv.senderNotifiedAt
+  )
+  
+  if (respondedInvite && !showInviteResponseModal.value) {
+    const { success, error: showError } = useToast()
+    
+    // Mostrar toast imediato
+    if (respondedInvite.status === 'accepted') {
+      success(`${respondedInvite.toUserEmail} aceitou seu convite! 🎉`)
+    } else {
+      showError(`${respondedInvite.toUserEmail} recusou seu convite.`)
+    }
+    
+    // Mostrar modal de resposta
+    inviteResponseData.value = {
+      isAccepted: respondedInvite.status === 'accepted',
+      email: respondedInvite.toUserEmail
+    }
+    showInviteResponseModal.value = true
+    // Marcar como notificado
+    budgetStore.markInviteSenderNotified(respondedInvite.id)
+  }
+
+  // 2. Verificar se tem convite não visto E modal não está aberta (evita duplicação)
+  if (!showShareInviteModal.value && !showInviteResponseModal.value) {
     const unviewedInvite = newInvites.find(inv =>
-      !inv.viewedAt && inv.status === 'pending'
+      !inv.viewedAt && 
+      inv.status === 'pending' &&
+      inv.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase()
     )
     if (unviewedInvite) {
+      const { info } = useToast()
+      info(`Você recebeu um convite de ${unviewedInvite.fromUserEmail}! 📬`)
+      
       currentInvite.value = unviewedInvite
       showShareInviteModal.value = true
       // Marcar como visto
@@ -542,9 +581,9 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       await budgetStore.loadGroups(newUser.uid)
       await budgetStore.startSharedBudgetsListener(newUser.uid)
 
-      // Iniciar listener de convites
+      // Iniciar listener de convites (enviados e recebidos)
       if (newUser.email) {
-        budgetStore.startInvitesListener(newUser.email)
+        budgetStore.startInvitesListener(newUser.email, newUser.uid)
       }
     } else if (!newUser && oldUser) {
       // Usuário fez logout
@@ -1051,6 +1090,8 @@ onUnmounted(() => {
       @logout="handleProfileLogout" @review-invite="handleReviewInvite" />
     <ShareInviteModal :show="showShareInviteModal" :invite="currentInvite" @accept="handleAcceptInvite"
       @reject="handleRejectInvite" @close="showShareInviteModal = false" />
+    <InviteResponseModal :show="showInviteResponseModal" :isAccepted="inviteResponseData.isAccepted"
+      :email="inviteResponseData.email" @close="showInviteResponseModal = false" />
     <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" :budget-name="resetBudgetData.name"
       :budget-total="resetBudgetData.total" :budget-spent="resetBudgetData.spent"
       @close="showConfirmResetModal = false; resetBudgetData = null" @confirm="handleResetConfirmed" />

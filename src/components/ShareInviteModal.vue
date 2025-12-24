@@ -236,4 +236,44 @@ defineEmits<{
 .modal-leave-to {
     opacity: 0;
 }
+
+/* Dark mode - usando body.dark-mode como padrão do app */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .invite-text {
+    color: #e0e0e0;
+}
+
+body.dark-mode .invite-text strong {
+    color: #fff;
+}
+
+body.dark-mode .invite-description {
+    color: #aaa;
+}
+
+body.dark-mode .btn-reject {
+    background: #3a2a2e;
+    border-color: #5a3a3e;
+    color: #ff7070;
+}
+
+body.dark-mode .btn-reject:hover {
+    background: #4a3a3e;
+}
+
+body.dark-mode .btn-later {
+    color: #aaa;
+}
+
+body.dark-mode .btn-later:hover {
+    color: #fff;
+    background: #2a2a3e;
+}
 </style>

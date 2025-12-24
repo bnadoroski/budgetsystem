@@ -53,6 +53,7 @@ export const useBudgetStore = defineStore('budget', () => {
     let groupsUnsubscribe: Unsubscribe | null = null
     let sharedUnsubscribe: Unsubscribe | null = null
     let invitesUnsubscribe: Unsubscribe | null = null
+    let invitesSentUnsubscribe: Unsubscribe | null = null
 
     // Referência da coleção de budgets
     const getBudgetsCollection = (userId: string) => {
@@ -68,11 +69,22 @@ export const useBudgetStore = defineStore('budget', () => {
         const budgetsRef = getBudgetsCollection(userId)
 
         unsubscribe = onSnapshot(budgetsRef, (snapshot) => {
-            // Substitui completamente (não concatena)
-            budgets.value = snapshot.docs.map(doc => ({
+            // Pega os budgets do usuário do snapshot
+            const userBudgets = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
+            
+            // Preserva budgets compartilhados (onde ownerId é diferente do userId)
+            const sharedBudgets = budgets.value.filter(b => b.ownerId && b.ownerId !== userId)
+            
+            // Combina: budgets do usuário + budgets compartilhados (sem duplicatas)
+            const sharedIds = new Set(sharedBudgets.map(b => b.id))
+            budgets.value = [
+                ...userBudgets.filter(b => !sharedIds.has(b.id)),
+                ...sharedBudgets
+            ]
+            
             // Salva no cache após receber do Firebase
             saveToLocalStorage()
         }, (error) => {
@@ -94,18 +106,45 @@ export const useBudgetStore = defineStore('budget', () => {
     // Carrega budgets do Firestore
     const loadBudgets = async (userId: string) => {
         try {
-            // Carrega do cache PRIMEIRO para exibição instantânea
-            loadFromLocalStorage()
+            // PRIMEIRO: preserva budgets compartilhados que estão em memória ANTES de carregar do cache
+            const existingSharedBudgets = budgets.value.filter(b => b.ownerId && b.ownerId !== userId)
+
+            // Carrega do cache para exibição instantânea (apenas se não temos dados em memória)
+            if (budgets.value.length === 0) {
+                loadFromLocalStorage()
+            }
 
             loading.value = true
             const budgetsRef = getBudgetsCollection(userId)
             const snapshot = await getDocs(budgetsRef)
 
-            // Substitui completamente (não concatena) com dados do Firebase
-            budgets.value = snapshot.docs.map(doc => ({
+            // Pega os budgets do usuário
+            const userBudgets = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
             } as Budget))
+
+            // Mantém os budgets compartilhados (usa os que preservamos + os do cache atual)
+            const cachedSharedBudgets = budgets.value.filter(b => b.ownerId && b.ownerId !== userId)
+
+            // Combina budgets compartilhados: prefere os que estavam em memória, adiciona os do cache
+            const sharedBudgetsMap = new Map<string, Budget>()
+            for (const b of cachedSharedBudgets) {
+                sharedBudgetsMap.set(b.id, b)
+            }
+            for (const b of existingSharedBudgets) {
+                sharedBudgetsMap.set(b.id, b) // Sobrescreve com os mais recentes da memória
+            }
+            const sharedBudgets = Array.from(sharedBudgetsMap.values())
+
+            // Combina: budgets do usuário + budgets compartilhados (sem duplicatas)
+            const sharedIds = new Set(sharedBudgets.map(b => b.id))
+            const combinedBudgets = [
+                ...userBudgets.filter(b => !sharedIds.has(b.id)),
+                ...sharedBudgets
+            ]
+
+            budgets.value = combinedBudgets
 
             // Carrega configurações do usuário do Firestore
             await loadUserSettings(userId)
@@ -203,6 +242,17 @@ export const useBudgetStore = defineStore('budget', () => {
                 const budgetRef = doc(db, 'users', authStore.userId, 'budgets', id)
                 await updateDoc(budgetRef, updates)
                 // O listener atualizará automaticamente
+
+                // Se for um orçamento compartilhado, também atualiza na coleção sharedBudgets
+                const budget = budgets.value.find(b => b.id === id)
+                if (budget && budget.sharedWith && budget.sharedWith.length > 0) {
+                    try {
+                        const sharedBudgetRef = doc(db, 'sharedBudgets', id)
+                        await updateDoc(sharedBudgetRef, updates)
+                    } catch (sharedError) {
+                        console.error('Erro ao sincronizar sharedBudgets:', sharedError)
+                    }
+                }
             } catch (error) {
                 console.error('Erro ao atualizar budget:', error)
                 // Fallback local
@@ -506,6 +556,8 @@ export const useBudgetStore = defineStore('budget', () => {
                     budgets.value.push(sharedBudget)
                 }
             }
+            // Salva no cache após atualizar budgets compartilhados
+            saveToLocalStorage()
         })
     }
 
@@ -846,26 +898,61 @@ export const useBudgetStore = defineStore('budget', () => {
 
     // === SISTEMA DE CONVITES ===
 
-    // Listener para convites pendentes
-    const startInvitesListener = (userEmail: string) => {
+    // Listener para convites (enviados e recebidos)
+    const startInvitesListener = (userEmail: string, userId: string) => {
         if (invitesUnsubscribe) {
             invitesUnsubscribe()
         }
+        if (invitesSentUnsubscribe) {
+            invitesSentUnsubscribe()
+        }
 
         const normalizedEmail = userEmail.trim().toLowerCase()
-        const invitesQuery = query(
+
+        // Query 1: Convites que EU RECEBI
+        const receivedQuery = query(
             collection(db, 'shareInvites'),
-            where('toUserEmail', '==', normalizedEmail),
-            where('status', '==', 'pending')
+            where('toUserEmail', '==', normalizedEmail)
         )
 
-        invitesUnsubscribe = onSnapshot(invitesQuery, (snapshot) => {
-            shareInvites.value = snapshot.docs.map(doc => ({
+        // Query 2: Convites que EU ENVIEI
+        const sentQuery = query(
+            collection(db, 'shareInvites'),
+            where('fromUserId', '==', userId)
+        )
+
+        let receivedInvites: ShareInvite[] = []
+        let sentInvites: ShareInvite[] = []
+
+        const updateInvites = () => {
+            // Combina e remove duplicatas (caso haja)
+            const allInvites = [...receivedInvites, ...sentInvites]
+            const uniqueInvites = allInvites.filter((invite, index, self) =>
+                index === self.findIndex(i => i.id === invite.id)
+            )
+            shareInvites.value = uniqueInvites
+        }
+
+        invitesUnsubscribe = onSnapshot(receivedQuery, (snapshot) => {
+            receivedInvites = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data(),
                 createdAt: doc.data().createdAt?.toDate() || new Date(),
-                respondedAt: doc.data().respondedAt?.toDate()
+                respondedAt: doc.data().respondedAt?.toDate(),
+                senderNotifiedAt: doc.data().senderNotifiedAt?.toDate()
             })) as ShareInvite[]
+            updateInvites()
+        })
+
+        invitesSentUnsubscribe = onSnapshot(sentQuery, (snapshot) => {
+            sentInvites = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                createdAt: doc.data().createdAt?.toDate() || new Date(),
+                respondedAt: doc.data().respondedAt?.toDate(),
+                senderNotifiedAt: doc.data().senderNotifiedAt?.toDate()
+            })) as ShareInvite[]
+            updateInvites()
         })
     }
 
@@ -873,6 +960,10 @@ export const useBudgetStore = defineStore('budget', () => {
         if (invitesUnsubscribe) {
             invitesUnsubscribe()
             invitesUnsubscribe = null
+        }
+        if (invitesSentUnsubscribe) {
+            invitesSentUnsubscribe()
+            invitesSentUnsubscribe = null
         }
     }
 
@@ -1138,6 +1229,81 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
+    // Marcar que o remetente foi notificado da resposta do convite
+    const markInviteSenderNotified = async (inviteId: string) => {
+        try {
+            await updateDoc(doc(db, 'shareInvites', inviteId), {
+                senderNotifiedAt: serverTimestamp()
+            })
+            // Atualiza local também
+            const invite = shareInvites.value.find(i => i.id === inviteId)
+            if (invite) {
+                invite.senderNotifiedAt = new Date()
+            }
+        } catch (error) {
+            console.error('Erro ao marcar remetente como notificado:', error)
+        }
+    }
+
+    // Remover compartilhamento completamente
+    const removeSharing = async (partnerEmail: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            // Encontrar o convite ativo com esse email
+            const invite = shareInvites.value.find(inv =>
+                inv.status === 'accepted' &&
+                (
+                    (inv.fromUserId === authStore.userId && inv.toUserEmail.toLowerCase() === partnerEmail.toLowerCase()) ||
+                    (inv.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase() && inv.fromUserEmail.toLowerCase() === partnerEmail.toLowerCase())
+                )
+            )
+
+            if (!invite) {
+                throw new Error('Compartilhamento não encontrado')
+            }
+
+            // Remover sharedWith dos budgets envolvidos
+            for (const budgetId of invite.budgetIds) {
+                // Remover do sharedBudgets collection
+                try {
+                    await deleteDoc(doc(db, 'sharedBudgets', budgetId))
+                } catch (e) {
+                    console.warn('Budget compartilhado não encontrado para deletar:', budgetId)
+                }
+
+                // Atualizar o budget original do remetente
+                const budgetRef = doc(db, 'users', invite.fromUserId, 'budgets', budgetId)
+                const budgetSnap = await getDoc(budgetRef)
+                if (budgetSnap.exists()) {
+                    const budgetData = budgetSnap.data()
+                    const currentSharedWith = budgetData.sharedWith || []
+                    const targetUserId = invite.fromUserId === authStore.userId
+                        ? invite.toUserId
+                        : authStore.userId
+                    await updateDoc(budgetRef, {
+                        sharedWith: currentSharedWith.filter((id: string) => id !== targetUserId)
+                    })
+                }
+            }
+
+            // Deletar o convite
+            await deleteDoc(doc(db, 'shareInvites', invite.id))
+
+            // Atualizar local
+            shareInvites.value = shareInvites.value.filter(i => i.id !== invite.id)
+
+            // Recarregar budgets
+            await loadBudgets(authStore.userId)
+
+            console.log('Compartilhamento removido com sucesso')
+        } catch (error) {
+            console.error('Erro ao remover compartilhamento:', error)
+            throw error
+        }
+    }
+
     // Mover budget para grupo (drag & drop)
     const moveBudgetToGroup = async (budgetId: string, groupId: string | undefined) => {
         await updateBudget(budgetId, { groupId })
@@ -1151,36 +1317,68 @@ export const useBudgetStore = defineStore('budget', () => {
         }
 
         try {
-            // Buscar convite aceito onde eu sou o remetente
+            // Buscar convite aceito onde eu participo (como remetente OU destinatário)
             const myAcceptedInvite = shareInvites.value.find(invite =>
-                invite.fromUserId === authStore.userId && invite.status === 'accepted'
+                invite.status === 'accepted' &&
+                (invite.fromUserId === authStore.userId ||
+                    invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
             )
 
             if (!myAcceptedInvite) {
                 throw new Error('Nenhum compartilhamento ativo encontrado')
             }
 
-            // Atualizar o convite com novos budgetIds
-            await updateDoc(doc(db, 'shareInvites', myAcceptedInvite.id), {
-                budgetIds
-            })
+            // Determinar o parceiro
+            const partnerId = myAcceptedInvite.fromUserId === authStore.userId
+                ? myAcceptedInvite.toUserId
+                : myAcceptedInvite.fromUserId
 
-            // Atualizar sharedBudgets collection
+            if (!partnerId) {
+                throw new Error('Parceiro não encontrado')
+            }
+
+            // Buscar budgets que EU já compartilhei (onde EU sou o owner)
+            const myCurrentSharedBudgets = budgets.value
+                .filter(b => b.ownerId === authStore.userId && b.sharedWith?.includes(partnerId))
+                .map(b => b.id)
+
+            // Calcular diferenças
+            const removedBudgetIds = myCurrentSharedBudgets.filter(id => !budgetIds.includes(id))
+            const newBudgetIds = budgetIds.filter(id => !myCurrentSharedBudgets.includes(id))
+
             // Remover budgets que não estão mais na lista
-            const removedBudgetIds = myAcceptedInvite.budgetIds.filter(id => !budgetIds.includes(id))
             for (const budgetId of removedBudgetIds) {
-                await deleteDoc(doc(db, 'sharedBudgets', budgetId))
+                // Remover do sharedBudgets collection
+                try {
+                    await deleteDoc(doc(db, 'sharedBudgets', budgetId))
+                } catch (e) {
+                    console.warn('Budget compartilhado não encontrado para deletar:', budgetId)
+                }
+
+                // Atualizar o budget original removendo o parceiro
+                const budget = budgets.value.find(b => b.id === budgetId)
+                if (budget) {
+                    await updateBudget(budgetId, {
+                        sharedWith: (budget.sharedWith || []).filter(id => id !== partnerId)
+                    })
+                }
             }
 
             // Adicionar novos budgets
-            const newBudgetIds = budgetIds.filter(id => !myAcceptedInvite.budgetIds.includes(id))
             for (const budgetId of newBudgetIds) {
                 const budget = budgets.value.find(b => b.id === budgetId)
-                if (budget) {
+                if (budget && budget.ownerId === authStore.userId) {
+                    // Adicionar ao sharedBudgets collection
                     await setDoc(doc(db, 'sharedBudgets', budgetId), {
                         ...budget,
+                        sharedWith: [...(budget.sharedWith || []), partnerId],
                         ownerId: authStore.userId,
                         ownerEmail: authStore.userEmail
+                    })
+
+                    // Atualizar o budget original
+                    await updateBudget(budgetId, {
+                        sharedWith: [...(budget.sharedWith || []), partnerId]
                     })
                 }
             }
@@ -1360,25 +1558,47 @@ export const useBudgetStore = defineStore('budget', () => {
     // Salva transação
     const saveTransaction = async (budgetId: string, expense: PendingExpense) => {
         const authStore = useAuthStore()
-        if (!authStore.userId) return
+        if (!authStore.userId) {
+            console.error('[SAVE_TRANSACTION] userId nao disponivel')
+            return
+        }
 
         const budget = budgets.value.find(b => b.id === budgetId)
-        if (!budget) return
+        if (!budget) {
+            console.error('[SAVE_TRANSACTION] Budget nao encontrado:', budgetId)
+            return
+        }
 
         try {
-            const transaction: Omit<Transaction, 'id'> = {
+            const hasInstallment = (expense.installmentTotal || 0) > 0
+            const hasMerchant = expense.merchantName && expense.merchantName !== 'Desconhecido'
+
+            // Construir objeto sem campos undefined (Firestore não aceita undefined)
+            const transaction: Record<string, unknown> = {
                 budgetId,
                 budgetName: budget.name,
                 amount: expense.amount,
-                merchantName: expense.merchantName,
-                merchantId: expense.merchantName ? await saveMerchant(expense.merchantName) : undefined,
-                description: expense.description,
-                isInstallment: (expense.installmentTotal || 0) > 0,
-                installmentNumber: expense.installmentNumber,
-                installmentTotal: expense.installmentTotal,
+                description: expense.description || 'Despesa automática',
+                isInstallment: hasInstallment,
                 createdAt: new Date(expense.timestamp),
                 userId: authStore.userId,
-                bank: expense.bank
+                bank: expense.bank || 'Notificação'
+            }
+
+            // Só adicionar campos opcionais se existirem
+            if (hasMerchant) {
+                transaction.merchantName = expense.merchantName
+                const merchantId = await saveMerchant(expense.merchantName!)
+                if (merchantId) {
+                    transaction.merchantId = merchantId
+                }
+            }
+
+            if (hasInstallment && expense.installmentNumber) {
+                transaction.installmentNumber = expense.installmentNumber
+            }
+            if (hasInstallment && expense.installmentTotal) {
+                transaction.installmentTotal = expense.installmentTotal
             }
 
             console.log('[SAVE_TRANSACTION] Salvando transacao:', transaction)
@@ -1388,7 +1608,12 @@ export const useBudgetStore = defineStore('budget', () => {
 
             // Se tem merchant, salva mapeamento
             if (transaction.merchantId && transaction.merchantName) {
-                await saveMerchantMapping(transaction.merchantId, transaction.merchantName, budgetId, budget.name)
+                await saveMerchantMapping(
+                    transaction.merchantId as string,
+                    transaction.merchantName as string,
+                    budgetId,
+                    budget.name
+                )
             }
 
             return docRef.id
@@ -1458,8 +1683,14 @@ export const useBudgetStore = defineStore('budget', () => {
         }
 
         try {
-            console.log('[LOAD_TRANSACTIONS] Carregando transacoes para budget:', budgetId, 'userId:', authStore.userId)
-            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            // Verifica se é um orçamento compartilhado (pertence a outro usuário)
+            const budget = budgets.value.find(b => b.id === budgetId)
+            const targetUserId = budget?.ownerId && budget.ownerId !== authStore.userId
+                ? budget.ownerId
+                : authStore.userId
+
+            console.log('[LOAD_TRANSACTIONS] Carregando transacoes para budget:', budgetId, 'targetUserId:', targetUserId)
+            const transactionsRef = collection(db, 'users', targetUserId, 'transactions')
 
             // Query simples primeiro (sem orderBy para evitar necessidade de índice)
             const q = query(
@@ -1498,7 +1729,13 @@ export const useBudgetStore = defineStore('budget', () => {
         if (!authStore.userId) return []
 
         try {
-            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            // Verifica se é um orçamento compartilhado (pertence a outro usuário)
+            const budget = budgets.value.find(b => b.id === budgetId)
+            const targetUserId = budget?.ownerId && budget.ownerId !== authStore.userId
+                ? budget.ownerId
+                : authStore.userId
+
+            const transactionsRef = collection(db, 'users', targetUserId, 'transactions')
             const q = query(transactionsRef, where('budgetId', '==', budgetId))
             const snapshot = await getDocs(q)
 
@@ -1958,6 +2195,8 @@ export const useBudgetStore = defineStore('budget', () => {
         acceptShareInvite,
         rejectShareInvite,
         markInviteAsViewed,
+        markInviteSenderNotified,
+        removeSharing,
         updateSharedBudgets,
         // Monthly History
         loadHistory,

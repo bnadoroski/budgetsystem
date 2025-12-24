@@ -681,4 +681,50 @@ button {
 .modal-leave-to .modal-content {
     transform: scale(0.9);
 }
+
+/* Dark mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode h2 {
+    color: #fff;
+}
+
+body.dark-mode .form-label {
+    color: #aaa;
+}
+
+body.dark-mode .form-input,
+body.dark-mode .form-select {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .form-input::placeholder {
+    color: #666;
+}
+
+body.dark-mode .tab {
+    color: #aaa;
+}
+
+body.dark-mode .tab:hover {
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+body.dark-mode .tab.active {
+    color: #4CAF50;
+}
+
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel:hover {
+    background: #3a3a4e;
+}
 </style>

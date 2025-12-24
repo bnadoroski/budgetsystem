@@ -995,4 +995,84 @@ const confirmDelete = async () => {
 .submodal-leave-to .submodal-content {
     transform: translateY(20px) scale(0.95);
 }
+
+/* Dark mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header {
+    border-bottom-color: #3a3a4e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    background: #2a2a3e;
+    color: #fff;
+}
+
+body.dark-mode .transaction-card {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .transaction-description {
+    color: #fff;
+}
+
+body.dark-mode .transaction-date {
+    color: #aaa;
+}
+
+body.dark-mode .transaction-amount {
+    color: #ff6b6b;
+}
+
+body.dark-mode .empty-state {
+    color: #aaa;
+}
+
+body.dark-mode .submodal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .submodal-header h3 {
+    color: #fff;
+}
+
+body.dark-mode .submodal-body label {
+    color: #aaa;
+}
+
+body.dark-mode .submodal-body input,
+body.dark-mode .submodal-body select {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel:hover {
+    background: #3a3a4e;
+}
+
+body.dark-mode .btn-delete {
+    background: #3a2a2a;
+    color: #ff7070;
+}
+
+body.dark-mode .btn-delete:hover {
+    background: #4a2a2a;
+}
 </style>
