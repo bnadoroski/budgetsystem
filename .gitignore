@@ -26,6 +26,10 @@ android/*.jks
 *.keystore
 *.jks
 
+# Firebase/Google Services config (contains API keys)
+android/app/google-services.json
+google-services.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
