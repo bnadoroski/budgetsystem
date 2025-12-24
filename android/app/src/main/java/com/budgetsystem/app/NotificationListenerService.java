@@ -8,38 +8,24 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
-import android.os.PowerManager;
 import androidx.core.app.NotificationCompat;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.net.URL;
+import java.net.HttpURLConnection;
+import org.json.JSONObject;
+import java.io.OutputStream;
 
 public class NotificationListenerService extends android.service.notification.NotificationListenerService {
     private static final String TAG = "BudgetNotifListener";
     private static final String CHANNEL_ID = "budget_listener_channel";
-    private static final int NOTIFICATION_ID = 1001;
-    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        Log.d(TAG, "🎧 NotificationListenerService CRIADO!");
-        
-        // Criar canal de notificação para foreground service
-        createNotificationChannel();
-        
-        // Iniciar como foreground service para manter ativo
-        startForeground(NOTIFICATION_ID, createNotification());
-        
-        // Adquirir wake lock parcial para processar notificações em background
-        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "BudgetSystem::NotificationWakeLock"
-        );
-        wakeLock.acquire();
-        
-        Log.d(TAG, "✅ Foreground service iniciado e wake lock adquirido!");
+        Log.d(TAG, "NotificationListenerService CRIADO!");
     }
     
     private void createNotificationChannel() {
@@ -97,13 +83,7 @@ public class NotificationListenerService extends android.service.notification.No
     @Override
     public void onDestroy() {
         super.onDestroy();
-        
-        // Liberar wake lock
-        if (wakeLock != null && wakeLock.isHeld()) {
-            wakeLock.release();
-        }
-        
-        Log.d(TAG, "🛑 NotificationListenerService DESTRUÍDO!");
+        Log.d(TAG, "NotificationListenerService DESTRUIDO!");
     }
 
     @Override
@@ -213,6 +193,9 @@ public class NotificationListenerService extends android.service.notification.No
             } else {
                 Log.e(TAG, "❌ NotificationPlugin não está disponível!");
             }
+            
+            // Envia também para FCM Cloud Function (opcional, para funcionar remotamente)
+            sendToFirebaseFunction(bank, amount, description, category);
 
         } catch (Exception e) {
             Log.e(TAG, "❌ Erro ao processar notificação: " + e.getMessage(), e);
@@ -234,6 +217,62 @@ public class NotificationListenerService extends android.service.notification.No
         if (packageName.contains("next")) return "Next";
         if (packageName.contains("c6bank")) return "C6 Bank";
         return "Outro";
+    }
+    
+    private void sendToFirebaseFunction(final String bank, final double amount, 
+                                       final String description, final String category) {
+        // Envia em thread separada para não bloquear
+        new Thread(() -> {
+            try {
+                Log.d(TAG, "🔥 Enviando para Firebase Cloud Function...");
+                
+                // Pega userId do SharedPreferences (salvo quando usuário faz login)
+                SharedPreferences prefs = getSharedPreferences("budget_system_prefs", MODE_PRIVATE);
+                String userId = prefs.getString("userId", null);
+                
+                if (userId == null) {
+                    Log.w(TAG, "⚠️ UserId não encontrado, pulando envio FCM");
+                    return;
+                }
+                
+                // URL da Cloud Function
+                URL url = new URL("https://us-central1-budget-system-34ef8.cloudfunctions.net/sendExpenseNotification");
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                
+                connection.setRequestMethod("POST");
+                connection.setRequestProperty("Content-Type", "application/json");
+                connection.setDoOutput(true);
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                
+                // Monta JSON
+                JSONObject jsonData = new JSONObject();
+                jsonData.put("userId", userId);
+                jsonData.put("amount", amount);
+                jsonData.put("bank", bank);
+                jsonData.put("description", description);
+                jsonData.put("category", category);
+                
+                // Envia
+                OutputStream os = connection.getOutputStream();
+                os.write(jsonData.toString().getBytes("UTF-8"));
+                os.close();
+                
+                int responseCode = connection.getResponseCode();
+                Log.d(TAG, "🔥 Firebase Function response: " + responseCode);
+                
+                if (responseCode == 200) {
+                    Log.d(TAG, "✅ Notificação FCM enviada com sucesso!");
+                } else {
+                    Log.w(TAG, "⚠️ Firebase Function retornou: " + responseCode);
+                }
+                
+                connection.disconnect();
+                
+            } catch (Exception e) {
+                Log.e(TAG, "❌ Erro ao enviar para Firebase Function: " + e.getMessage());
+            }
+        }).start();
     }
 
     private String categorizeExpense(String text) {

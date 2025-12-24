@@ -34,7 +34,8 @@
 
                                 <div v-if="expense.installmentTotal" class="expense-installment">
                                     <span class="installment-icon">💳</span>
-                                    <span class="installment-text">Parcela {{ expense.installmentNumber }}/{{ expense.installmentTotal }}</span>
+                                    <span class="installment-text">Parcela {{ expense.installmentNumber }}/{{
+                                        expense.installmentTotal }}</span>
                                 </div>
 
                                 <div class="expense-footer">
@@ -44,7 +45,8 @@
 
                                 <div class="expense-suggestion">
                                     <span class="suggestion-label">Sugerido:</span>
-                                    <span class="suggestion-budget">{{ getSuggestedBudget(expense) }}</span>
+                                    <span class="suggestion-budget">{{ suggestedBudgets[expense.id] || 'Carregando...'
+                                    }}</span>
                                     <button class="btn-choose-budget" @click="editExpense(expense)"
                                         title="Escolher budget">
                                         ✏️
@@ -79,35 +81,31 @@
                                 </div>
                             </div>
 
+                            <!-- Checkbox de Parcelamento -->
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" v-model="editingHasInstallments" />
+                                    <span>💳 Esta compra é parcelada</span>
+                                </label>
+                            </div>
+
                             <!-- Opções de parcelamento -->
-                            <div class="installment-section">
+                            <div v-show="editingHasInstallments" class="installment-section">
                                 <label class="section-title">💳 Parcelamento</label>
                                 <div class="installment-inputs">
                                     <div class="input-group">
                                         <label for="installmentNumber">Parcela Atual:</label>
-                                        <input 
-                                            id="installmentNumber"
-                                            v-model.number="editingInstallmentNumber" 
-                                            type="number" 
-                                            min="1" 
-                                            :max="editingInstallmentTotal || 12"
-                                            placeholder="Ex: 1"
-                                        />
+                                        <input id="installmentNumber" v-model.number="editingInstallmentNumber"
+                                            type="number" min="1" :max="editingInstallmentTotal || 12"
+                                            placeholder="Ex: 1" />
                                     </div>
                                     <div class="installment-separator">/</div>
                                     <div class="input-group">
                                         <label for="installmentTotal">Total de Parcelas:</label>
-                                        <input 
-                                            id="installmentTotal"
-                                            v-model.number="editingInstallmentTotal" 
-                                            type="number" 
-                                            min="1" 
-                                            max="99"
-                                            placeholder="Ex: 12"
-                                        />
+                                        <input id="installmentTotal" v-model.number="editingInstallmentTotal"
+                                            type="number" min="1" max="99" placeholder="Ex: 12" />
                                     </div>
                                 </div>
-                                <p class="installment-hint">Deixe em branco para compra à vista</p>
                             </div>
 
                             <!-- Lista de budgets -->
@@ -134,7 +132,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 
 interface PendingExpense {
@@ -160,6 +158,7 @@ const emit = defineEmits<{
 
 const budgetStore = useBudgetStore()
 const editingExpense = ref<PendingExpense | null>(null)
+const editingHasInstallments = ref(false)
 const editingInstallmentNumber = ref<number | undefined>(undefined)
 const editingInstallmentTotal = ref<number | undefined>(undefined)
 const swipingId = ref<string | null>(null)
@@ -169,22 +168,54 @@ const isDragging = ref(false)
 
 const pendingExpenses = computed(() => budgetStore.pendingExpenses)
 
-const getSuggestedBudget = (expense: PendingExpense) => {
-    // Primeiro tenta por merchant
-    if (expense.merchantName) {
-        const merchantSuggestion = budgetStore.budgets.find(b => {
-            const normalized = (name: string) => name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-            return normalized(b.name).includes(normalized(expense.merchantName || ''))
-        })
-        if (merchantSuggestion) return merchantSuggestion.name + ' 🎯'
+const suggestedBudgets = ref<{ [expenseId: string]: string }>({})
+
+const getSuggestedBudget = async (expense: PendingExpense) => {
+    // Se já tem cache, retorna
+    if (suggestedBudgets.value[expense.id]) {
+        return suggestedBudgets.value[expense.id]
     }
-    
+
+    // Primeiro tenta por merchant usando o store
+    if (expense.merchantName && expense.merchantName !== 'Desconhecido') {
+        const suggestion = await budgetStore.getMerchantSuggestion(expense.merchantName)
+        if (suggestion && suggestion.confidence === 'high' && suggestion.budgetName) {
+            const result = suggestion.budgetName + ' 🎯'
+            suggestedBudgets.value[expense.id] = result
+            return result
+        }
+        if (suggestion && suggestion.confidence === 'medium' && suggestion.budgetName) {
+            const result = suggestion.budgetName + ' 💡'
+            suggestedBudgets.value[expense.id] = result
+            return result
+        }
+    }
+
     // Senão, procura budget com nome igual à categoria
     const suggested = budgetStore.budgets.find(b =>
         b.name.toLowerCase() === expense.category.toLowerCase()
     )
-    return suggested?.name || `Criar "${expense.category}"`
+    const result = suggested?.name || `Criar "${expense.category}"`
+    suggestedBudgets.value[expense.id] = result
+    return result
 }
+
+// Carrega sugestões quando abre modal
+watch(() => props.show, async (newShow) => {
+    if (newShow && pendingExpenses.value.length > 0) {
+        for (const expense of pendingExpenses.value) {
+            await getSuggestedBudget(expense)
+        }
+    }
+})
+
+// Limpa campos de parcelamento quando checkbox é desmarcado
+watch(editingHasInstallments, (newVal) => {
+    if (!newVal) {
+        editingInstallmentNumber.value = undefined
+        editingInstallmentTotal.value = undefined
+    }
+})
 
 const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -285,6 +316,7 @@ const approveExpense = async (expense: PendingExpense) => {
 const editExpense = (expense: PendingExpense) => {
     editingExpense.value = expense
     // Inicializa campos de parcelamento com valores da despesa
+    editingHasInstallments.value = !!(expense.installmentNumber && expense.installmentTotal)
     editingInstallmentNumber.value = expense.installmentNumber
     editingInstallmentTotal.value = expense.installmentTotal
 }
@@ -300,13 +332,13 @@ const selectBudget = async (budgetName: string) => {
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         }
-        
+
         // Atualiza a despesa no store
         budgetStore.updatePendingExpense(updatedExpense.id, {
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         })
-        
+
         await budgetStore.approvePendingExpenseWithTransaction(updatedExpense.id, budget.id)
         editingExpense.value = null
         editingInstallmentNumber.value = undefined
@@ -324,12 +356,12 @@ const createNewBudget = () => {
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         }
-        
+
         budgetStore.updatePendingExpense(updatedExpense.id, {
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         })
-        
+
         emit('openAddBudget', updatedExpense)
         editingExpense.value = null
         editingInstallmentNumber.value = undefined
@@ -619,6 +651,33 @@ h2 {
 .info-value {
     color: #333;
     font-size: 13px;
+}
+
+/* Estilos para checkbox de parcelamento */
+.checkbox-group {
+    margin: 16px 0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    color: #333;
+    user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #4CAF50;
+}
+
+.checkbox-label span {
+    cursor: pointer;
 }
 
 /* Seção de parcelamento */

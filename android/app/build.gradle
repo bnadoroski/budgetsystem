@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// Load keystore properties
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace "com.budgetsystem.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -22,8 +29,19 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    
+    signingConfigs {
+        release {
+            storeFile file('../budget-system.keystore')
+            storePassword keystoreProperties.getProperty('KEYSTORE_PASSWORD') ?: ''
+            keyAlias 'budgetsystem'
+            keyPassword keystoreProperties.getProperty('KEY_PASSWORD') ?: ''
+        }
+    }
+    
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -46,6 +64,9 @@ dependencies {
     // Firebase Cloud Messaging
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
     implementation 'com.google.firebase:firebase-messaging'
+    
+    // ShortcutBadger para badges no ícone do app
+    implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
     
     // Testes unitários
     testImplementation "junit:junit:$junitVersion"

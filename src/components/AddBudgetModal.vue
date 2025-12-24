@@ -82,6 +82,32 @@
                             </select>
                         </div>
 
+                        <!-- Checkbox de Parcelamento -->
+                        <div class="form-group checkbox-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" v-model="expenseHasInstallments" />
+                                <span>💳 Esta compra é parcelada</span>
+                            </label>
+                        </div>
+
+                        <!-- Campos de Parcelamento -->
+                        <div v-show="expenseHasInstallments" class="installment-section">
+                            <label class="section-title">💳 Parcelamento</label>
+                            <div class="installment-inputs">
+                                <div class="input-group">
+                                    <label for="expense-installment-number">Parcela:</label>
+                                    <input id="expense-installment-number" v-model.number="expenseInstallmentNumber"
+                                        type="number" min="1" :max="expenseInstallmentTotal || 12" />
+                                </div>
+                                <div class="installment-separator">/</div>
+                                <div class="input-group">
+                                    <label for="expense-installment-total">Total:</label>
+                                    <input id="expense-installment-total" v-model.number="expenseInstallmentTotal"
+                                        type="number" min="1" max="99" />
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="form-actions">
                             <button type="button" class="btn-cancel" @click="close">Cancelar</button>
                             <button type="submit" class="btn-submit">Adicionar Lançamento</button>
@@ -126,6 +152,9 @@ const activeTab = ref<'budget' | 'expense'>('budget')
 const expenseValue = ref('0.00')
 const expenseType = ref<'expense' | 'income'>('expense')
 const selectedExpenseBudgetId = ref<string>('')
+const expenseHasInstallments = ref(false)
+const expenseInstallmentNumber = ref<number>(1)
+const expenseInstallmentTotal = ref<number>(12)
 
 const moneyConfig = {
     decimal: ',',
@@ -250,6 +279,17 @@ watch(() => props.show, (newVal) => {
         expenseValue.value = '0.00'
         expenseType.value = 'expense'
         selectedExpenseBudgetId.value = ''
+        expenseHasInstallments.value = false
+        expenseInstallmentNumber.value = 1
+        expenseInstallmentTotal.value = 12
+    }
+})
+
+// Limpa campos de parcelamento quando checkbox é desmarcado
+watch(expenseHasInstallments, (newVal) => {
+    if (!newVal) {
+        expenseInstallmentNumber.value = 1
+        expenseInstallmentTotal.value = 12
     }
 })
 
@@ -316,6 +356,23 @@ const handleExpenseSubmit = async () => {
         const finalAmount = expenseType.value === 'income' ? -numericValue : numericValue
 
         await budgetStore.addExpense(selectedExpenseBudgetId.value, finalAmount)
+
+        // Salvar transação para histórico
+        const budget = budgetStore.budgets.find(b => b.id === selectedExpenseBudgetId.value)
+        if (budget) {
+            const manualExpense = {
+                id: `manual-${Date.now()}`,
+                amount: numericValue,
+                merchantName: expenseType.value === 'income' ? 'Recebimento Manual' : 'Lançamento Manual',
+                description: expenseType.value === 'income' ? 'Recebimento adicionado manualmente' : 'Gasto adicionado manualmente',
+                timestamp: Date.now(),
+                installmentNumber: expenseHasInstallments.value ? expenseInstallmentNumber.value : undefined,
+                installmentTotal: expenseHasInstallments.value ? expenseInstallmentTotal.value : undefined,
+                bank: 'Manual'
+            }
+            await budgetStore.saveTransactionFromManual(selectedExpenseBudgetId.value, manualExpense, expenseType.value === 'income')
+        }
+
         close()
     }
 }
@@ -474,6 +531,104 @@ button {
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+}
+
+.btn-cancel {
+    background-color: #f0f0f0;
+    color: #666;
+}
+
+/* Estilos para checkbox de parcelamento */
+.checkbox-group {
+    margin: 16px 0;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    color: #333;
+    user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #4CAF50;
+}
+
+.checkbox-label span {
+    cursor: pointer;
+}
+
+/* Estilos para seção de parcelamento */
+.installment-section {
+    background: #E3F2FD;
+    padding: 16px;
+    border-radius: 12px;
+    margin: 16px 0;
+}
+
+.section-title {
+    display: block;
+    font-weight: 600;
+    color: #1976D2;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.installment-inputs {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.input-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.input-group label {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 4px;
+    font-weight: 500;
+}
+
+.input-group input[type="number"] {
+    padding: 10px;
+    border: 2px solid #BBDEFB;
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+    font-weight: 600;
+    color: #1976D2;
+    background: white;
+}
+
+.input-group input[type="number"]:focus {
+    outline: none;
+    border-color: #1976D2;
+}
+
+.installment-separator {
+    font-size: 24px;
+    font-weight: bold;
+    color: #1976D2;
+    padding-bottom: 8px;
+}
+
+.installment-hint {
+    font-size: 11px;
+    color: #666;
+    margin: 0;
+    font-style: italic;
 }
 
 .btn-cancel {

@@ -79,6 +79,9 @@ export interface Transaction {
     createdAt: Date
     userId: string
     bank?: string
+    isIncome?: boolean
+    deletedAt?: Date  // Exclusão lógica - usado para histórico
+    resetMonth?: string  // Mês em que foi resetado (YYYY-MM)
 }
 
 export interface AggregatedBudget {

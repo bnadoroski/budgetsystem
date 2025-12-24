@@ -21,9 +21,11 @@ import EmptyPendingModal from '@/components/EmptyPendingModal.vue'
 import ProfileModal from '@/components/ProfileModal.vue'
 import ShareInviteModal from '@/components/ShareInviteModal.vue'
 import ConfirmResetModal from '@/components/ConfirmResetModal.vue'
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
 import TransactionsModal from '@/components/TransactionsModal.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
 import { useToast } from '@/composables/useToast'
+import { initFCM } from '@/plugins/FCMPlugin'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
@@ -81,6 +83,7 @@ const showEmptyPendingModal = ref(false)
 const showProfileModal = ref(false)
 const showShareInviteModal = ref(false)
 const showConfirmResetModal = ref(false)
+const showConfirmDeleteModal = ref(false)
 const showTransactionsModal = ref(false)
 const currentInvite = ref<any>(null)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
@@ -90,7 +93,14 @@ const editingBudgetId = ref<string | undefined>(undefined)
 const editingBudgetData = ref<any>(null)
 const permissionDenied = ref(false)
 const resetBudgetData = ref<{ id: string, name: string, total: number, spent: number } | null>(null)
+const deleteBudgetData = ref<{ id: string, name: string, total: number, spent: number, transactionCount: number } | null>(null)
 const transactionsBudgetData = ref<{ id: string, name: string } | null>(null)
+
+// Pull-to-refresh state
+const isPulling = ref(false)
+const pullDistance = ref(0)
+const isRefreshing = ref(false)
+const pullThreshold = 80
 
 const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
@@ -218,10 +228,31 @@ const handleEditBudget = (budgetId: string) => {
 
 const handleDeleteBudget = async (budgetId: string) => {
   const budget = budgetStore.budgets.find(b => b.id === budgetId)
-  if (confirm('Tem certeza que deseja excluir este budget?')) {
-    await budgetStore.deleteBudget(budgetId)
+  if (budget) {
+    // Carregar contagem de transações
+    const transactions = await budgetStore.loadTransactions(budgetId)
+    deleteBudgetData.value = {
+      id: budget.id,
+      name: budget.name,
+      total: budget.totalValue,
+      spent: budget.spentValue,
+      transactionCount: transactions.length
+    }
+    showConfirmDeleteModal.value = true
+  }
+}
+
+const handleDeleteConfirmed = async () => {
+  if (deleteBudgetData.value) {
+    const budgetName = deleteBudgetData.value.name
+    // Primeiro deleta todos os lançamentos
+    await budgetStore.deleteAllTransactionsForBudget(deleteBudgetData.value.id)
+    // Depois deleta o budget
+    await budgetStore.deleteBudget(deleteBudgetData.value.id)
+    showConfirmDeleteModal.value = false
+    deleteBudgetData.value = null
     const { success } = useToast()
-    success(`Budget "${budget?.name}" excluído!`)
+    success(`Budget "${budgetName}" excluído!`)
   }
 }
 
@@ -240,6 +271,9 @@ const handleConfirmReset = (budgetId: string) => {
 
 const handleResetConfirmed = async () => {
   if (resetBudgetData.value) {
+    // Processa lançamentos parcelados antes de deletar
+    await budgetStore.processInstallmentsOnReset(resetBudgetData.value.id)
+    // Depois reseta o valor gasto
     await budgetStore.updateBudget(resetBudgetData.value.id, { spentValue: 0 })
     showConfirmResetModal.value = false
     resetBudgetData.value = null
@@ -247,13 +281,16 @@ const handleResetConfirmed = async () => {
 }
 
 const handleViewTransactions = (budgetId: string) => {
+  console.log('[APP] handleViewTransactions chamado com budgetId:', budgetId)
   const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  console.log('[APP] Budget encontrado:', budget)
   if (budget) {
     transactionsBudgetData.value = {
       id: budget.id,
       name: budget.name
     }
     showTransactionsModal.value = true
+    console.log('[APP] showTransactionsModal definido como true')
   }
 }
 
@@ -459,11 +496,11 @@ const handleRejectInvite = async (inviteId: string) => {
   }
 }
 
-// Watch para novos convites
-watch(() => budgetStore.shareInvites.length, (newLength, oldLength) => {
-  if (newLength > 0 && newLength > (oldLength || 0)) {
-    // Novo convite recebido - verificar se ainda não foi visto e está pendente
-    const unviewedInvite = budgetStore.shareInvites.find(inv => 
+// Watch para novos convites (apenas quando um novo realmente chega)
+watch(() => budgetStore.shareInvites, (newInvites) => {
+  // Verificar se tem convite não visto E modal não está aberta (evita duplicação)
+  if (!showShareInviteModal.value) {
+    const unviewedInvite = newInvites.find(inv =>
       !inv.viewedAt && inv.status === 'pending'
     )
     if (unviewedInvite) {
@@ -473,7 +510,7 @@ watch(() => budgetStore.shareInvites.length, (newLength, oldLength) => {
       budgetStore.markInviteAsViewed(unviewedInvite.id)
     }
   }
-})
+}, { deep: true })
 
 // Quando o usuário faz login/logout
 watch(() => authStore.user, async (newUser, oldUser) => {
@@ -495,13 +532,6 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       if (newUser.email) {
         budgetStore.startInvitesListener(newUser.email)
       }
-
-      // Mock: Criar convite de compartilhamento para testar (REMOVER DEPOIS)
-      if (newUser.email === 'bnadoroski@gmail.com') {
-        setTimeout(async () => {
-          await budgetStore.addMockShareInvite('bnadoroski@gmail.com')
-        }, 2000)
-      }
     } else if (!newUser && oldUser) {
       // Usuário fez logout
       budgetStore.stopBudgetsListener()
@@ -513,18 +543,75 @@ watch(() => authStore.user, async (newUser, oldUser) => {
     handleError(error as Error, 'autenticação')
   }
 })
+
+// Pull-to-refresh handlers
+let startY = 0
+const handleTouchStart = (e: TouchEvent) => {
+  const scrollContainer = document.querySelector('.app-container')
+  if (scrollContainer && scrollContainer.scrollTop === 0 && e.touches[0]) {
+    startY = e.touches[0].clientY
+    isPulling.value = true
+  }
+}
+
+const handleTouchMove = (e: TouchEvent) => {
+  if (!isPulling.value || isRefreshing.value || !e.touches[0]) return
+
+  const currentY = e.touches[0].clientY
+  const diff = currentY - startY
+
+  if (diff > 0) {
+    pullDistance.value = Math.min(diff * 0.5, 120)
+    if (pullDistance.value > 10) {
+      e.preventDefault()
+    }
+  }
+}
+
+const handleTouchEnd = async () => {
+  if (!isPulling.value) return
+
+  if (pullDistance.value >= pullThreshold && !isRefreshing.value && authStore.userId) {
+    isRefreshing.value = true
+    try {
+      await budgetStore.loadBudgets(authStore.userId)
+      await budgetStore.loadGroups(authStore.userId)
+    } finally {
+      setTimeout(() => {
+        isRefreshing.value = false
+        pullDistance.value = 0
+        isPulling.value = false
+      }, 500)
+    }
+  } else {
+    pullDistance.value = 0
+    isPulling.value = false
+  }
+}
+
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
   try {
+    // authStore já monitora automaticamente o estado com onAuthStateChanged
+    if (authStore.user) {
+      await budgetStore.loadBudgets(authStore.user.uid)
+      await budgetStore.loadGroups(authStore.user.uid)
+      await budgetStore.startSharedBudgetsListener(authStore.user.uid)
+
+      // Initialize FCM
+      try {
+        await initFCM()
+        console.log('✅ FCM initialized')
+      } catch (error) {
+        console.error('❌ FCM initialization failed:', error)
+      }
+    }
+
     // Registra listener do botão voltar do Android
     CapacitorApp.addListener('backButton', handleBackButton)
 
-    // Registra listener de notificações bancárias
-    console.log('🔔 Registrando listener de notificações...')
-
     // Verifica se tem permissão
     const permissionResult = await NotificationPlugin.checkPermission()
-    console.log('🔐 Permissão de notificação:', permissionResult.hasPermission ? 'HABILITADA ✅' : 'DESABILITADA ❌')
 
     if (!permissionResult.hasPermission) {
       console.warn('⚠️ Permissão de notificação não habilitada!')
@@ -532,11 +619,6 @@ onMounted(async () => {
       setTimeout(() => {
         showPermissionModal.value = true
       }, 1000)
-    } else {
-      console.log('✅ Permissão já habilitada! Listener pronto para capturar notificações.')
-      console.log('💡 IMPORTANTE: Se acabou de fazer build, o serviço pode precisar ser reiniciado!')
-      console.log('📱 Para reativar: Configurações > Apps > Budget System > Force Stop > Abrir app novamente')
-      console.log('🔄 Ou: Desabilite e reabilite a permissão de notificação nas configurações')
     }
 
     await NotificationPlugin.addListener('bankExpense', (expense) => {
@@ -562,7 +644,6 @@ onMounted(async () => {
         showPendingExpensesModal.value = true
       }
     })
-    console.log('✅ Listener de notificações registrado com sucesso!')
 
     // Aguarda o Firebase verificar se há usuário autenticado
     const maxWaitTime = 2000 // 2 segundos no máximo
@@ -602,7 +683,20 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-container">
+  <div class="app-container" @touchstart="handleTouchStart" @touchmove.passive="handleTouchMove"
+    @touchend="handleTouchEnd">
+    <!-- Pull to Refresh Indicator -->
+    <div class="pull-to-refresh" :style="{ transform: `translateY(${pullDistance - 60}px)` }">
+      <div class="pull-spinner" :class="{ spinning: isRefreshing }">
+        <svg v-if="!isRefreshing" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+        </svg>
+        <div v-else class="spinner"></div>
+      </div>
+    </div>
+
     <!-- Error Notification -->
     <div v-if="errorMessage" class="error-notification">
       <div class="error-header">
@@ -701,10 +795,10 @@ onUnmounted(() => {
         <template v-for="item in aggregatedUngroupedBudgets"
           :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
           <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
-            @delete="() => handleDeleteBudget(item.budget.id)" 
-            @confirm-reset="() => handleConfirmReset(item.budget.id)"
+            @delete="() => handleDeleteBudget(item.budget.id)" @confirm-reset="() => handleConfirmReset(item.budget.id)"
             @view-transactions="() => handleViewTransactions(item.budget.id)" />
-          <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)" />
+          <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)"
+            @view-transactions="(id) => handleViewTransactions(id)" @confirm-reset="(id) => handleConfirmReset(id)" />
         </template>
       </div>
     </div>
@@ -894,7 +988,9 @@ onUnmounted(() => {
       @close="showAddModal = false; selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
       @submit="handleAddBudget" @update="handleUpdateBudget" />
     <AuthModal :show="showAuthModal" :persist="!authStore.isAuthenticated" @close="showAuthModal = false" />
-    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false" />
+    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false"
+      @confirm-reset="(budgetId) => handleConfirmReset(budgetId)"
+      @view-transactions="(budgetId) => handleViewTransactions(budgetId)" />
     <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
     <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
@@ -908,26 +1004,20 @@ onUnmounted(() => {
       @logout="handleProfileLogout" @review-invite="handleReviewInvite" />
     <ShareInviteModal :show="showShareInviteModal" :invite="currentInvite" @accept="handleAcceptInvite"
       @reject="handleRejectInvite" @close="showShareInviteModal = false" />
-    <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" 
-      :budget-name="resetBudgetData.name"
-      :budget-total="resetBudgetData.total" 
-      :budget-spent="resetBudgetData.spent"
-      @close="showConfirmResetModal = false; resetBudgetData = null" 
-      @confirm="handleResetConfirmed" />
+    <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" :budget-name="resetBudgetData.name"
+      :budget-total="resetBudgetData.total" :budget-spent="resetBudgetData.spent"
+      @close="showConfirmResetModal = false; resetBudgetData = null" @confirm="handleResetConfirmed" />
+    <ConfirmDeleteModal v-if="deleteBudgetData" :show="showConfirmDeleteModal" :budget-name="deleteBudgetData.name"
+      :budget-total="deleteBudgetData.total" :budget-spent="deleteBudgetData.spent"
+      :transaction-count="deleteBudgetData.transactionCount"
+      @close="showConfirmDeleteModal = false; deleteBudgetData = null" @confirm="handleDeleteConfirmed" />
     <TransactionsModal v-if="transactionsBudgetData" :show="showTransactionsModal"
-      :budget-id="transactionsBudgetData.id"
-      :budget-name="transactionsBudgetData.name"
+      :budget-id="transactionsBudgetData.id" :budget-name="transactionsBudgetData.name"
       @close="showTransactionsModal = false; transactionsBudgetData = null" />
-    
+
     <!-- Toast Notifications -->
-    <ToastNotification 
-      v-for="toast in toasts" 
-      :key="toast.id"
-      :message="toast.message"
-      :type="toast.type"
-      :duration="toast.duration"
-      :show="true"
-      @close="() => {}" />
+    <ToastNotification v-for="toast in toasts" :key="toast.id" :message="toast.message" :type="toast.type"
+      :duration="toast.duration" :show="true" @close="() => { }" />
   </div>
 </template>
 
@@ -940,6 +1030,7 @@ onUnmounted(() => {
   position: relative;
   padding-bottom: calc(80px + env(safe-area-inset-bottom));
   padding-top: env(safe-area-inset-top);
+  overflow-y: auto;
 }
 
 .app-container::before {
@@ -955,6 +1046,61 @@ onUnmounted(() => {
   opacity: 0.5;
   z-index: 0;
   pointer-events: none;
+}
+
+/* Pull to Refresh Styles */
+.pull-to-refresh {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  z-index: 1000;
+  transition: transform 0.1s ease-out;
+  pointer-events: none;
+}
+
+.pull-spinner {
+  width: 40px;
+  height: 40px;
+  background: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  color: #4CAF50;
+  transition: transform 0.2s;
+}
+
+.pull-spinner.spinning {
+  animation: none;
+}
+
+.pull-spinner svg {
+  transition: transform 0.3s;
+}
+
+.pull-spinner:not(.spinning) svg {
+  transform: rotate(0deg);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #4CAF50;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .budget-list {

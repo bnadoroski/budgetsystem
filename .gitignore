@@ -19,6 +19,13 @@ coverage
 .env.local
 .env.*.local
 
+# Android keystore and signing configs
+android/keystore.properties
+android/*.keystore
+android/*.jks
+*.keystore
+*.jks
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -13,6 +13,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     close: []
+    confirmReset: [budgetId: string]
+    viewTransactions: [budgetId: string]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -134,7 +136,11 @@ const handleCancelEdit = () => {
 }
 
 const handleResetSpent = (budgetId: string) => {
-    budgetStore.updateBudget(budgetId, { spentValue: 0 })
+    emit('confirmReset', budgetId)
+}
+
+const handleViewTransactions = (budgetId: string) => {
+    emit('viewTransactions', budgetId)
 }
 
 const handleDeleteBudget = (budgetId: string) => {
@@ -304,6 +310,19 @@ onMounted(() => {
                                                     </path>
                                                     <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z">
                                                     </path>
+                                                </svg>
+                                            </button>
+                                            <button class="action-button" title="Ver Lançamentos"
+                                                @click="handleViewTransactions(budget.id)">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <path
+                                                        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z">
+                                                    </path>
+                                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                                    <polyline points="10 9 9 9 8 9"></polyline>
                                                 </svg>
                                             </button>
                                             <button class="action-button" title="Resetar gastos"
@@ -617,7 +636,8 @@ onMounted(() => {
 }
 
 .budget-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
 }
 
@@ -625,13 +645,16 @@ onMounted(() => {
     background: white;
     border: 1px solid #e0e0e0;
     border-radius: 6px;
-    padding: 8px;
+    padding: 8px 12px;
     cursor: pointer;
     color: #666;
     transition: all 0.2s;
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
+    font-size: 13px;
+    white-space: nowrap;
 }
 
 .action-button:hover {

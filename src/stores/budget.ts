@@ -21,6 +21,7 @@ import {
 } from 'firebase/firestore'
 import { useAuthStore } from './auth'
 import FCM from '@/plugins/FCMPlugin'
+import Badge from '@/plugins/BadgePlugin'
 import { Capacitor } from '@capacitor/core'
 
 interface PendingExpense {
@@ -118,6 +119,9 @@ export const useBudgetStore = defineStore('budget', () => {
 
             // Salva atualização no cache
             saveToLocalStorage()
+
+            // Carrega despesas pendentes do localStorage
+            loadPendingExpenses()
 
             // Inicia listener para atualizações em tempo real
             startBudgetsListener(userId)
@@ -827,35 +831,6 @@ export const useBudgetStore = defineStore('budget', () => {
         pendingExpenses.value = []
     }
 
-    // Mock data para testar sistema de convites de compartilhamento
-    const addMockShareInvite = async (targetUserEmail: string) => {
-        try {
-            // Normalizar email
-            const normalizedEmail = targetUserEmail.trim().toLowerCase()
-
-            // Criar um convite mock como se alguém tivesse enviado
-            const mockInvite = {
-                fromUserId: 'mock-sender-id',
-                fromUserEmail: 'teste@gmail.com',
-                toUserEmail: normalizedEmail,
-                budgetIds: ['mock-budget-1', 'mock-budget-2', 'mock-budget-3'],
-                totalBudgetLimit: 5000,
-                status: 'pending' as const,
-                createdAt: serverTimestamp()
-            }
-
-            // Adicionar o convite ao Firestore
-            const inviteRef = await addDoc(collection(db, 'shareInvites'), mockInvite)
-
-            console.log('✅ Mock de convite criado com sucesso!', inviteRef.id)
-            console.log('📧 De:', mockInvite.fromUserEmail)
-            console.log('📧 Para:', mockInvite.toUserEmail)
-            console.log('📦 Budgets:', mockInvite.budgetIds.length)
-        } catch (error) {
-            console.error('❌ Erro ao criar mock de convite:', error)
-        }
-    }
-
     // === SISTEMA DE CONVITES ===
 
     // Listener para convites pendentes
@@ -898,8 +873,20 @@ export const useBudgetStore = defineStore('budget', () => {
         const normalizedEmail = targetEmail.trim().toLowerCase()
 
         try {
+            // Buscar toUserId pelo email
+            let toUserId = ''
+            const usersRef = collection(db, 'users')
+            const usersSnapshot = await getDocs(usersRef)
+            for (const userDoc of usersSnapshot.docs) {
+                const userData = userDoc.data()
+                if (userData.email?.toLowerCase() === normalizedEmail) {
+                    toUserId = userDoc.id
+                    break
+                }
+            }
+
             // Criar convite no Firestore
-            const inviteRef = await addDoc(collection(db, 'shareInvites'), {
+            const inviteData: any = {
                 fromUserId: authStore.userId,
                 fromUserEmail: authStore.userEmail,
                 toUserEmail: normalizedEmail,
@@ -907,7 +894,40 @@ export const useBudgetStore = defineStore('budget', () => {
                 totalBudgetLimit: totalBudgetLimit.value,
                 status: 'pending',
                 createdAt: serverTimestamp()
-            })
+            }
+
+            // Só adiciona toUserId se existir (Firestore não aceita undefined)
+            if (toUserId) {
+                inviteData.toUserId = toUserId
+            }
+
+            const inviteRef = await addDoc(collection(db, 'shareInvites'), inviteData)
+
+            // Envia notificação push/email via Cloud Function
+            try {
+                const response = await fetch('https://us-central1-budget-system-34ef8.cloudfunctions.net/sendInviteNotification', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        inviteId: inviteRef.id,
+                        fromUserId: authStore.userId,
+                        fromUserEmail: authStore.userEmail,
+                        toUserEmail: normalizedEmail,
+                        toUserId: toUserId || undefined,
+                        type: 'new_invite',
+                        budgetCount: budgetIds.length
+                    })
+                })
+
+                if (!response.ok) {
+                    console.warn('Falha ao enviar notificação, mas convite foi criado')
+                }
+            } catch (notifError) {
+                console.warn('Erro ao enviar notificação:', notifError)
+                // Não falha se notificação falhar
+            }
 
             console.log('Convite enviado:', inviteRef.id)
             return inviteRef.id
@@ -940,21 +960,73 @@ export const useBudgetStore = defineStore('budget', () => {
 
                 const budgetData = budgetDoc.docs.find(d => d.id === budgetId)?.data()
                 if (budgetData) {
-                    const currentSharedWith = budgetData.sharedWith || []
-                    if (!currentSharedWith.includes(authStore.userId)) {
+                    const budgetName = budgetData.name
+
+                    // Verifica se o usuário já tem um budget com o mesmo nome
+                    const existingBudget = budgets.value.find(b =>
+                        b.name.toLowerCase() === budgetName.toLowerCase() &&
+                        b.ownerId === authStore.userId
+                    )
+
+                    if (existingBudget) {
+                        // MERGE: Se existe budget com mesmo nome, mescla com o maior valor
+                        console.log(`🔀 Mesclando budgets com nome "${budgetName}"`)
+
+                        const mergedTotalValue = Math.max(
+                            existingBudget.totalValue,
+                            budgetData.totalValue || 0
+                        )
+                        const mergedSpentValue = Math.max(
+                            existingBudget.spentValue,
+                            budgetData.spentValue || 0
+                        )
+
+                        // Atualiza o budget existente do usuário
+                        await updateBudget(existingBudget.id, {
+                            totalValue: mergedTotalValue,
+                            spentValue: mergedSpentValue,
+                            sharedWith: [
+                                ...(existingBudget.sharedWith || []),
+                                senderId
+                            ]
+                        })
+
+                        // Atualiza o budget do remetente para incluir o destinatário
+                        const currentSharedWith = budgetData.sharedWith || []
                         await updateDoc(budgetRef, {
                             sharedWith: [...currentSharedWith, authStore.userId]
                         })
 
-                        // Também atualizar no sharedBudgets
+                        // Atualiza sharedBudgets
                         const sharedBudgetRef = doc(db, 'sharedBudgets', budgetId)
                         await setDoc(sharedBudgetRef, {
                             ...budgetData,
                             id: budgetId,
                             sharedWith: [...currentSharedWith, authStore.userId],
                             ownerId: senderId,
-                            ownerEmail: invite.fromUserEmail
+                            ownerEmail: invite.fromUserEmail,
+                            mergedWith: existingBudget.id
                         }, { merge: true })
+
+                        console.log(`✅ Budgets mesclados: ${existingBudget.name}`)
+                    } else {
+                        // Compartilhamento normal: adiciona o usuário ao sharedWith
+                        const currentSharedWith = budgetData.sharedWith || []
+                        if (!currentSharedWith.includes(authStore.userId)) {
+                            await updateDoc(budgetRef, {
+                                sharedWith: [...currentSharedWith, authStore.userId]
+                            })
+
+                            // Também atualizar no sharedBudgets
+                            const sharedBudgetRef = doc(db, 'sharedBudgets', budgetId)
+                            await setDoc(sharedBudgetRef, {
+                                ...budgetData,
+                                id: budgetId,
+                                sharedWith: [...currentSharedWith, authStore.userId],
+                                ownerId: senderId,
+                                ownerEmail: invite.fromUserEmail
+                            }, { merge: true })
+                        }
                     }
                 }
             }
@@ -965,15 +1037,35 @@ export const useBudgetStore = defineStore('budget', () => {
                 respondedAt: serverTimestamp()
             })
 
-            // Envia notificação ao remetente
-            if (invite.budgetIds.length > 0) {
-                const firstBudget = budgets.value.find(b => b.id === invite.budgetIds[0])
-                if (firstBudget) {
-                    await sendInviteNotification(senderId, firstBudget.name, true)
-                }
+            // Envia notificação ao remetente via Cloud Function
+            try {
+                await fetch('https://us-central1-budget-system-34ef8.cloudfunctions.net/sendInviteNotification', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        inviteId,
+                        fromUserId: invite.fromUserId,
+                        fromUserEmail: invite.fromUserEmail,
+                        toUserEmail: authStore.userEmail || invite.toUserEmail,
+                        toUserId: authStore.userId,
+                        type: 'invite_accepted',
+                        budgetCount: invite.budgetIds.length
+                    })
+                })
+            } catch (notifError) {
+                console.warn('Erro ao enviar notificação:', notifError)
             }
 
-            console.log('Convite aceito com sucesso')
+            // Recarrega os budgets para mostrar os compartilhados
+            if (authStore.userId) {
+                await loadBudgets(authStore.userId)
+                // Inicia listener de budgets compartilhados se ainda não estiver rodando
+                startSharedBudgetsListener(authStore.userId)
+            }
+
+            console.log('✅ Convite aceito com sucesso! Budgets recarregados.')
         } catch (error) {
             console.error('Erro ao aceitar convite:', error)
             throw error
@@ -994,12 +1086,25 @@ export const useBudgetStore = defineStore('budget', () => {
                 respondedAt: serverTimestamp()
             })
 
-            // Envia notificação ao remetente
-            if (invite.budgetIds.length > 0) {
-                const firstBudget = budgets.value.find(b => b.id === invite.budgetIds[0])
-                if (firstBudget && invite.fromUserId) {
-                    await sendInviteNotification(invite.fromUserId, firstBudget.name, false)
-                }
+            // Envia notificação ao remetente via Cloud Function
+            try {
+                await fetch('https://us-central1-budget-system-34ef8.cloudfunctions.net/sendInviteNotification', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        inviteId,
+                        fromUserId: invite.fromUserId,
+                        fromUserEmail: invite.fromUserEmail,
+                        toUserEmail: authStore.userEmail || invite.toUserEmail,
+                        toUserId: authStore.userId,
+                        type: 'invite_rejected',
+                        budgetCount: invite.budgetIds.length
+                    })
+                })
+            } catch (notifError) {
+                console.warn('Erro ao enviar notificação:', notifError)
             }
 
             console.log('Convite recusado')
@@ -1263,8 +1368,10 @@ export const useBudgetStore = defineStore('budget', () => {
                 bank: expense.bank
             }
 
+            console.log('[SAVE_TRANSACTION] Salvando transacao:', transaction)
             const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
             const docRef = await addDoc(transactionsRef, transaction)
+            console.log('[SAVE_TRANSACTION] Transacao salva com ID:', docRef.id)
 
             // Se tem merchant, salva mapeamento
             if (transaction.merchantId && transaction.merchantName) {
@@ -1273,31 +1380,134 @@ export const useBudgetStore = defineStore('budget', () => {
 
             return docRef.id
         } catch (error) {
-            console.error('Erro ao salvar transação:', error)
+            console.error('[SAVE_TRANSACTION] Erro ao salvar transacao:', error)
         }
     }
 
-    // Carrega transações de um budget
+    // Salva transação a partir de lançamento manual
+    const saveTransactionFromManual = async (budgetId: string, manualExpense: {
+        id: string
+        amount: number
+        merchantName: string
+        description: string
+        timestamp: number
+        installmentNumber?: number
+        installmentTotal?: number
+        bank?: string
+    }, isIncome: boolean = false) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        const budget = budgets.value.find(b => b.id === budgetId)
+        if (!budget) return
+
+        try {
+            const hasInstallment = (manualExpense.installmentTotal || 0) > 0
+
+            // Construir objeto sem campos undefined (Firestore não aceita undefined)
+            const transaction: Record<string, unknown> = {
+                budgetId,
+                budgetName: budget.name,
+                amount: isIncome ? -manualExpense.amount : manualExpense.amount,
+                merchantName: manualExpense.merchantName,
+                description: manualExpense.description,
+                isInstallment: hasInstallment,
+                createdAt: new Date(manualExpense.timestamp),
+                userId: authStore.userId,
+                bank: manualExpense.bank || 'Manual'
+            }
+
+            // Só adicionar campos de parcelamento se existirem
+            if (hasInstallment && manualExpense.installmentNumber) {
+                transaction.installmentNumber = manualExpense.installmentNumber
+            }
+            if (hasInstallment && manualExpense.installmentTotal) {
+                transaction.installmentTotal = manualExpense.installmentTotal
+            }
+
+            console.log('[SAVE_MANUAL_TRANSACTION] Salvando transacao manual:', transaction)
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            const docRef = await addDoc(transactionsRef, transaction)
+            console.log('[SAVE_MANUAL_TRANSACTION] Transacao salva com ID:', docRef.id)
+
+            return docRef.id
+        } catch (error) {
+            console.error('[SAVE_MANUAL_TRANSACTION] Erro ao salvar transacao:', error)
+        }
+    }
+
+    // Carrega transações de um budget (apenas ativas, não deletadas)
     const loadTransactions = async (budgetId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) {
+            console.log('[LOAD_TRANSACTIONS] userId nao disponivel')
+            return []
+        }
+
+        try {
+            console.log('[LOAD_TRANSACTIONS] Carregando transacoes para budget:', budgetId, 'userId:', authStore.userId)
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+
+            // Query simples primeiro (sem orderBy para evitar necessidade de índice)
+            const q = query(
+                transactionsRef,
+                where('budgetId', '==', budgetId)
+            )
+            const snapshot = await getDocs(q)
+            console.log('[LOAD_TRANSACTIONS] Transacoes encontradas:', snapshot.docs.length)
+
+            const result = snapshot.docs
+                .filter(doc => !doc.data().deletedAt)  // Filtrar transações deletadas logicamente
+                .map(doc => {
+                    const data = doc.data()
+                    console.log('[LOAD_TRANSACTIONS] Doc raw:', doc.id, data)
+                    return {
+                        id: doc.id,
+                        ...data,
+                        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+                    }
+                }) as Transaction[]
+
+            // Ordenar manualmente por data
+            result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+
+            console.log('[LOAD_TRANSACTIONS] Transacoes ativas carregadas:', result.length)
+            return result
+        } catch (error) {
+            console.error('[LOAD_TRANSACTIONS] Erro ao carregar transacoes:', error)
+            return []
+        }
+    }
+
+    // Carrega todas as transações incluindo deletadas (para histórico)
+    const loadTransactionsWithHistory = async (budgetId: string, month?: string) => {
         const authStore = useAuthStore()
         if (!authStore.userId) return []
 
         try {
             const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
-            const q = query(
-                transactionsRef,
-                where('budgetId', '==', budgetId),
-                orderBy('createdAt', 'desc')
-            )
+            const q = query(transactionsRef, where('budgetId', '==', budgetId))
             const snapshot = await getDocs(q)
 
-            return snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-                createdAt: doc.data().createdAt?.toDate() || new Date()
-            })) as Transaction[]
+            let result = snapshot.docs.map(doc => {
+                const data = doc.data()
+                return {
+                    id: doc.id,
+                    ...data,
+                    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
+                    deletedAt: data.deletedAt?.toDate ? data.deletedAt.toDate() : (data.deletedAt ? new Date(data.deletedAt) : undefined)
+                }
+            }) as Transaction[]
+
+            // Se um mês específico foi solicitado, filtrar por resetMonth
+            if (month) {
+                result = result.filter(t => t.resetMonth === month)
+            }
+
+            result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+            return result
         } catch (error) {
-            console.error('Erro ao carregar transações:', error)
+            console.error('[LOAD_TRANSACTIONS_HISTORY] Erro:', error)
             return []
         }
     }
@@ -1328,19 +1538,153 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
+    // Deleta todas as transações de um budget (usado no reset)
+    const deleteAllTransactionsForBudget = async (budgetId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            console.log('[DELETE_TRANSACTIONS] Deletando transacoes do budget:', budgetId)
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            const q = query(transactionsRef, where('budgetId', '==', budgetId))
+            const snapshot = await getDocs(q)
+
+            console.log('[DELETE_TRANSACTIONS] Transacoes a deletar:', snapshot.docs.length)
+
+            // Deletar cada transação
+            const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref))
+            await Promise.all(deletePromises)
+
+            console.log('[DELETE_TRANSACTIONS] Todas as transacoes deletadas')
+        } catch (error) {
+            console.error('[DELETE_TRANSACTIONS] Erro ao deletar transacoes:', error)
+        }
+    }
+
+    // Processa transações no reset: parcelas avançam para próxima, não-parcelas são arquivadas
+    const processInstallmentsOnReset = async (budgetId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            console.log('[RESET_INSTALLMENTS] Processando transacoes do budget:', budgetId)
+            const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+            const q = query(transactionsRef, where('budgetId', '==', budgetId))
+            const snapshot = await getDocs(q)
+
+            // Filtrar apenas transações não deletadas
+            const activeDocs = snapshot.docs.filter(doc => !doc.data().deletedAt)
+            console.log('[RESET_INSTALLMENTS] Transacoes ativas encontradas:', activeDocs.length)
+
+            const archivePromises: Promise<void>[] = []
+            const updatePromises: Promise<void>[] = []
+            let newSpentValue = 0
+            const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
+
+            for (const docSnapshot of activeDocs) {
+                const transactionData = docSnapshot.data()
+                const installmentNumber = transactionData.installmentNumber
+                const installmentTotal = transactionData.installmentTotal
+                const amount = transactionData.amount || 0
+                const isIncome = transactionData.isIncome || false
+
+                // Se é uma transação de parcela válida
+                if (installmentNumber && installmentTotal && installmentNumber > 0 && installmentTotal > 0) {
+                    const newInstallmentNumber = installmentNumber + 1
+
+                    // Se a nova parcela excede o total, arquivar a transação
+                    if (newInstallmentNumber > installmentTotal) {
+                        console.log('[RESET_INSTALLMENTS] Parcela finalizada, arquivando:', docSnapshot.id)
+                        archivePromises.push(updateDoc(docSnapshot.ref, {
+                            deletedAt: new Date(),
+                            resetMonth: currentMonth
+                        }))
+                    } else {
+                        // Senão, atualizar para a próxima parcela e somar ao spent
+                        console.log('[RESET_INSTALLMENTS] Atualizando parcela:', docSnapshot.id, `${installmentNumber}/${installmentTotal} -> ${newInstallmentNumber}/${installmentTotal}`)
+                        updatePromises.push(updateDoc(docSnapshot.ref, {
+                            installmentNumber: newInstallmentNumber
+                        }))
+                        // Parcela continua ativa, contribui para o spent
+                        if (!isIncome) {
+                            newSpentValue += amount
+                        } else {
+                            newSpentValue -= amount
+                        }
+                    }
+                } else {
+                    // Transação sem parcela, arquivar (exclusão lógica)
+                    console.log('[RESET_INSTALLMENTS] Transacao sem parcela, arquivando:', docSnapshot.id)
+                    archivePromises.push(updateDoc(docSnapshot.ref, {
+                        deletedAt: new Date(),
+                        resetMonth: currentMonth
+                    }))
+                }
+            }
+
+            await Promise.all([...archivePromises, ...updatePromises])
+
+            // Atualizar o spent do budget com o valor das parcelas que continuam
+            const budget = budgets.value.find(b => b.id === budgetId)
+            if (budget) {
+                console.log('[RESET_INSTALLMENTS] Atualizando spent do budget:', budgetId, 'para:', newSpentValue)
+                await updateBudget(budgetId, { spentValue: newSpentValue })
+            }
+
+            console.log('[RESET_INSTALLMENTS] Processamento concluido. Arquivadas:', archivePromises.length, 'Atualizadas:', updatePromises.length, 'Novo spent:', newSpentValue)
+        } catch (error) {
+            console.error('[RESET_INSTALLMENTS] Erro ao processar transacoes:', error)
+        }
+    }
+
     // Transfere transação para outro budget
     const transferTransaction = async (transactionId: string, newBudgetId: string) => {
         const authStore = useAuthStore()
         if (!authStore.userId) return
 
+        // Buscar a transação para saber o valor e o budget atual
+        const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
+        const transactionDoc = await getDoc(doc(transactionsRef, transactionId))
+
+        if (!transactionDoc.exists()) {
+            console.error('[TRANSFER] Transação não encontrada:', transactionId)
+            return
+        }
+
+        const transactionData = transactionDoc.data()
+        const oldBudgetId = transactionData.budgetId
+        const amount = transactionData.amount || 0
+        const isIncome = transactionData.isIncome || false
+
         const newBudget = budgets.value.find(b => b.id === newBudgetId)
-        if (!newBudget) return
+        const oldBudget = budgets.value.find(b => b.id === oldBudgetId)
+
+        if (!newBudget) {
+            console.error('[TRANSFER] Budget destino não encontrado:', newBudgetId)
+            return
+        }
 
         try {
+            // Atualizar a transação com o novo budgetId
             await updateTransaction(transactionId, {
                 budgetId: newBudgetId,
                 budgetName: newBudget.name
             })
+
+            // Atualizar valores dos budgets (se não for income)
+            if (!isIncome) {
+                // Remover do budget antigo
+                if (oldBudget) {
+                    const newOldSpent = Math.max(0, oldBudget.spentValue - amount)
+                    await updateBudget(oldBudgetId, { spentValue: newOldSpent })
+                }
+
+                // Adicionar ao novo budget
+                const newSpent = newBudget.spentValue + amount
+                await updateBudget(newBudgetId, { spentValue: newSpent })
+            }
+
+            console.log('[TRANSFER] Transação transferida com sucesso')
         } catch (error) {
             console.error('Erro ao transferir transação:', error)
         }
@@ -1348,11 +1692,18 @@ export const useBudgetStore = defineStore('budget', () => {
 
     // Atualiza approvePendingExpense para salvar transação
     const approvePendingExpenseWithTransaction = async (expenseId: string, budgetId: string) => {
+        console.log('[APPROVE] Iniciando aprovacao de despesa:', expenseId, 'para budget:', budgetId)
         const expense = pendingExpenses.value.find(e => e.id === expenseId)
-        if (!expense) return
+        if (!expense) {
+            console.error('[APPROVE] Despesa nao encontrada:', expenseId)
+            return
+        }
 
+        console.log('[APPROVE] Despesa encontrada:', expense)
         await addExpense(budgetId, expense.amount)
+        console.log('[APPROVE] Chamando saveTransaction...')
         await saveTransaction(budgetId, expense)
+        console.log('[APPROVE] saveTransaction concluido')
 
         expense.approved = true
 
@@ -1503,14 +1854,51 @@ export const useBudgetStore = defineStore('budget', () => {
         try {
             const count = pendingExpenses.value.length
             if (count > 0) {
-                await FCM.setBadge({ count })
+                await Badge.setBadge({ count })
             } else {
-                await FCM.clearBadge()
+                await Badge.clearBadge()
             }
         } catch (error) {
             console.error('Erro ao atualizar badge:', error)
         }
     }
+
+    // Atualiza lastActiveAt do usuário para rastrear inatividade
+    const updateLastActive = async () => {
+        const authStore = useAuthStore()
+        if (!authStore.userId || !Capacitor.isNativePlatform()) return
+
+        try {
+            const userDocRef = doc(db, 'users', authStore.userId)
+            await setDoc(userDocRef, {
+                lastActiveAt: serverTimestamp()
+            }, { merge: true })
+        } catch (error) {
+            console.error('Erro ao atualizar lastActiveAt:', error)
+        }
+    }
+
+    // Sistema de checagem periódica de notificações (a cada 6 horas)
+    const startNotificationChecker = () => {
+        if (!Capacitor.isNativePlatform()) return
+
+        // Atualiza lastActive ao iniciar
+        updateLastActive()
+
+        // Verifica notificações imediatamente
+        sendPendingExpensesNotification()
+        sendInactivityNotification()
+
+        // Agenda checagens periódicas
+        setInterval(() => {
+            updateLastActive()
+            sendPendingExpensesNotification()
+            sendInactivityNotification()
+        }, 6 * 60 * 60 * 1000) // 6 horas
+    }
+
+    // Inicia checker automaticamente
+    startNotificationChecker()
 
     // ===== FIM NOTIFICAÇÕES =====
 
@@ -1578,15 +1966,17 @@ export const useBudgetStore = defineStore('budget', () => {
         saveMerchantMapping,
         saveTransaction,
         loadTransactions,
+        loadTransactionsWithHistory,
         updateTransaction,
         deleteTransaction,
+        deleteAllTransactionsForBudget,
+        processInstallmentsOnReset,
         transferTransaction,
+        saveTransactionFromManual,
         // Notifications
         sendInviteNotification,
         sendPendingExpensesNotification,
         sendInactivityNotification,
-        updateBadgeCount,
-        // Mock data
-        addMockShareInvite
+        updateBadgeCount
     }
 })

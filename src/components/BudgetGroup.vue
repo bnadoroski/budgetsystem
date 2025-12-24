@@ -6,7 +6,7 @@
                 <div class="group-text">
                     <h3 class="group-name">{{ group.name }}</h3>
                     <span class="group-count">{{ groupBudgets.length }} budget{{ groupBudgets.length !== 1 ? 's' : ''
-                        }}</span>
+                    }}</span>
                 </div>
             </div>
             <div class="group-actions">
@@ -33,9 +33,8 @@
                     @edit="() => emit('editBudget', budget.id)" @delete="() => emit('deleteBudget', budget.id)"
                     @confirm-reset="() => emit('confirmReset', budget.id)"
                     @view-transactions="() => emit('viewTransactions', budget.id)" />
-                <div v-if="groupBudgets.length === 0" class="no-budgets" @click="handleAddBudgetToGroup">
+                <div v-if="groupBudgets.length === 0" class="no-budgets">
                     <p>Nenhum budget neste grupo</p>
-                    <p class="add-hint">Clique para adicionar</p>
                 </div>
             </div>
         </Transition>
@@ -267,25 +266,7 @@ const handleDrop = async (event: DragEvent) => {
     padding: 30px;
     color: #999;
     font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s;
     border-radius: 12px;
-}
-
-.no-budgets:hover {
-    background: #f5f5f5;
-    color: #666;
-}
-
-.no-budgets:active {
-    transform: scale(0.98);
-}
-
-.add-hint {
-    margin-top: 8px;
-    font-size: 12px;
-    color: #4CAF50;
-    font-weight: 500;
 }
 
 .expand-enter-active,

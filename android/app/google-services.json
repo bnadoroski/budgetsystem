@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "962288789210-jid3j3aprel5lqc77e90lp8c2kc9tk98.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.budgetsystem.app",
+            "certificate_hash": "951ba6c418bbb5836dec8157b52530f1c9c4c2b4"
+          }
+        },
+        {
           "client_id": "962288789210-o9itjf2ii552s82jk4vvte3m6v2krq9m.apps.googleusercontent.com",
           "client_type": 3
         }

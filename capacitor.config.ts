@@ -5,7 +5,14 @@ const config: CapacitorConfig = {
   appName: 'Budget System',
   webDir: 'dist',
   server: {
-    androidScheme: 'https'
+    androidScheme: 'https',
+    cleartext: true,
+    hostname: 'budgetsystem.app'
+  },
+  plugins: {
+    PushNotifications: {
+      presentationOptions: ["badge", "sound", "alert"]
+    }
   }
 };
 

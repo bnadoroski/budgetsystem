@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(com.codetrixstudio.capacitor.GoogleAuth.GoogleAuth.class);
         registerPlugin(NotificationPlugin.class);
+        registerPlugin(BadgePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

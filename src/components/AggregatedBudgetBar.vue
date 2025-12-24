@@ -44,6 +44,9 @@
                             <button v-if="canEdit(budget)" class="context-btn edit" @click="handleEdit(budget.id)">
                                 Editar
                             </button>
+                            <button class="context-btn transactions" @click="handleViewTransactions(budget.id)">
+                                Ver Lançamentos
+                            </button>
                             <button v-if="canReset(budget)" class="context-btn reset" @click="handleReset(budget.id)">
                                 Resetar
                             </button>
@@ -73,6 +76,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     edit: [budgetId: string]
+    viewTransactions: [budgetId: string]
+    confirmReset: [budgetId: string]
 }>()
 
 const budgetStore = useBudgetStore()
@@ -104,10 +109,10 @@ const isHidden = (budget: any) => {
 const handleHide = async (budgetId: string) => {
     const budget = props.aggregatedBudget.budgets.find(b => b.id === budgetId)
     if (!budget) return
-    
+
     const hiddenBy = budget.hiddenBy || []
     const isCurrentlyHidden = hiddenBy.includes(authStore.userId || '')
-    
+
     if (isCurrentlyHidden) {
         // Remover do array de ocultos
         await budgetStore.updateBudget(budgetId, {
@@ -120,7 +125,7 @@ const handleHide = async (budgetId: string) => {
             hiddenBy: [...hiddenBy, authStore.userId]
         })
     }
-    
+
     showContextMenu.value = false
 }
 
@@ -133,12 +138,14 @@ const handleEdit = (budgetId: string) => {
     emit('edit', budgetId)
 }
 
-const handleReset = async (budgetId: string) => {
-    const budget = props.aggregatedBudget.budgets.find(b => b.id === budgetId)
-    if (budget && confirm(`Resetar o budget "${budget.name}" para R$ 0,00?`)) {
-        await budgetStore.updateBudget(budgetId, { spentValue: 0 })
-        showContextMenu.value = false
-    }
+const handleReset = (budgetId: string) => {
+    showContextMenu.value = false
+    emit('confirmReset', budgetId)
+}
+
+const handleViewTransactions = (budgetId: string) => {
+    showContextMenu.value = false
+    emit('viewTransactions', budgetId)
 }
 
 const formatCurrency = (value: number) => {
@@ -154,15 +161,15 @@ const formatBudgetValues = () => {
     // Separa budgets do usuário vs compartilhados
     const userBudgets = props.aggregatedBudget.budgets.filter(b => b.ownerId === authStore.userId)
     const sharedBudgets = props.aggregatedBudget.budgets.filter(b => b.ownerId !== authStore.userId)
-    
+
     const userTotal = userBudgets.reduce((sum, b) => sum + b.totalValue, 0)
     const sharedTotal = sharedBudgets.reduce((sum, b) => sum + b.totalValue, 0)
-    
+
     if (sharedTotal > 0) {
         // Formato: "R$ 100,00 / R$ 50,00" (você / compartilhado)
         return `${formatCurrency(userTotal)} / ${formatCurrency(sharedTotal)}`
     }
-    
+
     return formatCurrency(userTotal)
 }
 
