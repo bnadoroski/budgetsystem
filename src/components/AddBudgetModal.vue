@@ -116,6 +116,14 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Toast de erro -->
+        <ToastNotification
+            :show="showErrorToast"
+            :message="errorMessage"
+            type="error"
+            @close="showErrorToast = false"
+        />
     </Teleport>
 </template>
 
@@ -124,6 +132,7 @@ import { ref, watch, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { Money3Directive } from 'v-money3'
 import QuickAmountButtons from './QuickAmountButtons.vue'
+import ToastNotification from './ToastNotification.vue'
 
 const vMoney3 = Money3Directive
 
@@ -155,6 +164,8 @@ const selectedExpenseBudgetId = ref<string>('')
 const expenseHasInstallments = ref(false)
 const expenseInstallmentNumber = ref<number>(1)
 const expenseInstallmentTotal = ref<number>(12)
+const showErrorToast = ref(false)
+const errorMessage = ref('')
 
 const moneyConfig = {
     decimal: ',',
@@ -322,7 +333,8 @@ const handleSubmit = () => {
             )
 
             if (nameExists) {
-                alert(`❌ Já existe um budget chamado "${budgetName.value}"`)
+                errorMessage.value = `Já existe um budget chamado "${budgetName.value}"`
+                showErrorToast.value = true
                 return
             }
 

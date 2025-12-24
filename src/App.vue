@@ -452,6 +452,20 @@ const handlePermissionAllow = async () => {
   showPermissionModal.value = false
   await NotificationPlugin.requestPermission()
   permissionDenied.value = false
+  
+  // Após conceder permissão de notificação, verifica otimização de bateria
+  // Isso é importante para o serviço funcionar em background
+  setTimeout(async () => {
+    try {
+      const batteryResult = await NotificationPlugin.checkBatteryOptimization()
+      if (!batteryResult.isIgnoring) {
+        // Solicita para ignorar otimização de bateria
+        await NotificationPlugin.requestIgnoreBatteryOptimization()
+      }
+    } catch (error) {
+      console.log('Verificação de bateria não disponível (provavelmente web)')
+    }
+  }, 2000) // Aguarda 2 segundos para o usuário processar a primeira permissão
 }
 
 const handlePermissionCancel = () => {
@@ -644,6 +658,39 @@ onMounted(async () => {
         showPendingExpensesModal.value = true
       }
     })
+
+    // Carrega despesas pendentes que foram capturadas com o app fechado
+    try {
+      const pendingResult = await NotificationPlugin.loadPendingExpenses()
+      console.log('📂 Despesas pendentes carregadas:', pendingResult.count)
+      
+      if (pendingResult.count > 0) {
+        // Adiciona cada despesa pendente ao store
+        for (const expense of pendingResult.expenses) {
+          budgetStore.addPendingExpense({
+            amount: expense.amount,
+            bank: expense.bank,
+            description: expense.description,
+            category: expense.category,
+            timestamp: expense.timestamp,
+            merchantName: expense.merchantName,
+            installmentNumber: expense.installmentNumber,
+            installmentTotal: expense.installmentTotal
+          })
+        }
+        
+        // Limpa as despesas do SharedPreferences nativo
+        await NotificationPlugin.clearPendingExpenses()
+        console.log('✅ Despesas pendentes processadas e limpas!')
+        
+        // Mostra modal de despesas pendentes
+        setTimeout(() => {
+          showPendingExpensesModal.value = true
+        }, 1500)
+      }
+    } catch (e) {
+      console.log('Carregamento de despesas pendentes não disponível (web)')
+    }
 
     // Aguarda o Firebase verificar se há usuário autenticado
     const maxWaitTime = 2000 // 2 segundos no máximo

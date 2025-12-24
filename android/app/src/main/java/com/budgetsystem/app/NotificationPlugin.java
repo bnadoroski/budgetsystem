@@ -2,12 +2,20 @@ package com.budgetsystem.app;
 
 import android.util.Log;
 import android.content.Intent;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
+import android.os.PowerManager;
 import android.provider.Settings;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import org.json.JSONObject;
+import org.json.JSONArray;
 
 @CapacitorPlugin(name = "NotificationPlugin")
 public class NotificationPlugin extends Plugin {
@@ -98,5 +106,126 @@ public class NotificationPlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("value", value);
         call.resolve(ret);
+    }
+
+    // Verifica se está ignorando otimizações de bateria
+    @PluginMethod
+    public void checkBatteryOptimization(PluginCall call) {
+        boolean isIgnoring = false;
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            isIgnoring = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
+        } else {
+            isIgnoring = true; // Antes do Android M não tinha essa restrição
+        }
+        
+        Log.d(TAG, "🔋 Ignorando otimização de bateria: " + (isIgnoring ? "SIM ✅" : "NÃO ❌"));
+        
+        JSObject ret = new JSObject();
+        ret.put("isIgnoring", isIgnoring);
+        call.resolve(ret);
+    }
+
+    // Solicita para ignorar otimizações de bateria
+    @PluginMethod
+    public void requestIgnoreBatteryOptimization(PluginCall call) {
+        Log.d(TAG, "🔋 Solicitando para ignorar otimização de bateria...");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+            
+            if (!pm.isIgnoringBatteryOptimizations(getContext().getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(intent);
+            } else {
+                Log.d(TAG, "✅ Já está ignorando otimização de bateria");
+            }
+        }
+        
+        call.resolve();
+    }
+
+    // Abre configurações de bateria do app
+    @PluginMethod
+    public void openBatterySettings(PluginCall call) {
+        Log.d(TAG, "⚙️ Abrindo configurações de bateria...");
+        
+        try {
+            // Tenta abrir configurações específicas do app
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+            getActivity().startActivity(intent);
+        } catch (Exception e) {
+            // Fallback para configurações gerais de bateria
+            Intent intent = new Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS);
+            getActivity().startActivity(intent);
+        }
+        
+        call.resolve();
+    }
+
+    // Carrega despesas pendentes que foram salvas enquanto o app estava fechado
+    @PluginMethod
+    public void loadPendingExpenses(PluginCall call) {
+        Log.d(TAG, "📂 Carregando despesas pendentes...");
+        
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences("budget_pending_expenses", Context.MODE_PRIVATE);
+            String expensesJson = prefs.getString("expenses", "[]");
+            
+            JSONArray expenses = new JSONArray(expensesJson);
+            Log.d(TAG, "📂 Encontradas " + expenses.length() + " despesas pendentes");
+            
+            JSArray jsExpenses = new JSArray();
+            for (int i = 0; i < expenses.length(); i++) {
+                JSONObject expense = expenses.getJSONObject(i);
+                JSObject jsExpense = new JSObject();
+                jsExpense.put("bank", expense.optString("bank", "Outro"));
+                jsExpense.put("amount", expense.optDouble("amount", 0));
+                jsExpense.put("description", expense.optString("description", ""));
+                jsExpense.put("category", expense.optString("category", "Outros"));
+                jsExpense.put("timestamp", expense.optLong("timestamp", System.currentTimeMillis()));
+                
+                if (expense.has("merchantName")) {
+                    jsExpense.put("merchantName", expense.getString("merchantName"));
+                }
+                if (expense.has("installmentNumber")) {
+                    jsExpense.put("installmentNumber", expense.getInt("installmentNumber"));
+                    jsExpense.put("installmentTotal", expense.getInt("installmentTotal"));
+                }
+                
+                jsExpenses.put(jsExpense);
+            }
+            
+            JSObject ret = new JSObject();
+            ret.put("expenses", jsExpenses);
+            ret.put("count", expenses.length());
+            call.resolve(ret);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao carregar despesas pendentes: " + e.getMessage(), e);
+            JSObject ret = new JSObject();
+            ret.put("expenses", new JSArray());
+            ret.put("count", 0);
+            call.resolve(ret);
+        }
+    }
+
+    // Limpa as despesas pendentes após serem processadas
+    @PluginMethod
+    public void clearPendingExpenses(PluginCall call) {
+        Log.d(TAG, "🗑️ Limpando despesas pendentes...");
+        
+        try {
+            SharedPreferences prefs = getContext().getSharedPreferences("budget_pending_expenses", Context.MODE_PRIVATE);
+            prefs.edit().putString("expenses", "[]").apply();
+            Log.d(TAG, "✅ Despesas pendentes limpas!");
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao limpar despesas pendentes: " + e.getMessage(), e);
+            call.reject("Erro ao limpar despesas pendentes");
+        }
     }
 }

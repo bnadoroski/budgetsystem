@@ -4,6 +4,9 @@ import { useBudgetStore } from '@/stores/budget'
 import type { Budget } from '@/types/budget'
 import { Money3Directive } from 'v-money3'
 import QuickAmountButtons from './QuickAmountButtons.vue'
+import NotificationPlugin from '@/plugins/NotificationPlugin'
+import { Capacitor } from '@capacitor/core'
+import ConfirmModal from './ConfirmModal.vue'
 
 const vMoney3 = Money3Directive
 
@@ -25,6 +28,8 @@ const editName = ref('')
 const editTotal = ref(0)
 const editColor = ref('')
 const savedLimitFeedback = ref(false)
+const showDeleteConfirm = ref(false)
+const budgetToDelete = ref<string | null>(null)
 
 // Atualizar valores quando modal abrir
 watch(() => props.show, (isShowing) => {
@@ -86,6 +91,44 @@ const addAmountToLimit = (amount: number) => {
 const currency = ref('BRL')
 const notificationsEnabled = ref(true)
 const darkModeEnabled = ref(false)
+const isNativePlatform = Capacitor.isNativePlatform()
+const batteryOptimizationIgnored = ref(false)
+
+// Verificar status da otimização de bateria
+const checkBatteryStatus = async () => {
+    if (isNativePlatform) {
+        try {
+            const result = await NotificationPlugin.checkBatteryOptimization()
+            batteryOptimizationIgnored.value = result.isIgnoring
+        } catch (e) {
+            console.log('Não foi possível verificar otimização de bateria')
+        }
+    }
+}
+
+// Abrir configurações de bateria
+const openBatterySettings = async () => {
+    if (isNativePlatform) {
+        try {
+            await NotificationPlugin.openBatterySettings()
+        } catch (e) {
+            console.error('Erro ao abrir configurações de bateria:', e)
+        }
+    }
+}
+
+// Solicitar ignorar otimização de bateria
+const requestIgnoreBattery = async () => {
+    if (isNativePlatform) {
+        try {
+            await NotificationPlugin.requestIgnoreBatteryOptimization()
+            // Verificar novamente após alguns segundos
+            setTimeout(checkBatteryStatus, 2000)
+        } catch (e) {
+            console.error('Erro ao solicitar ignorar bateria:', e)
+        }
+    }
+}
 
 const totalAllocated = computed(() => {
     return budgetStore.budgets.reduce((sum, b) => sum + b.totalValue, 0)
@@ -144,9 +187,21 @@ const handleViewTransactions = (budgetId: string) => {
 }
 
 const handleDeleteBudget = (budgetId: string) => {
-    if (confirm('Tem certeza que deseja excluir este budget?')) {
-        budgetStore.deleteBudget(budgetId)
+    budgetToDelete.value = budgetId
+    showDeleteConfirm.value = true
+}
+
+const confirmDeleteBudget = () => {
+    if (budgetToDelete.value) {
+        budgetStore.deleteBudget(budgetToDelete.value)
     }
+    budgetToDelete.value = null
+    showDeleteConfirm.value = false
+}
+
+const cancelDeleteBudget = () => {
+    budgetToDelete.value = null
+    showDeleteConfirm.value = false
 }
 
 const formatCurrency = (value: number) => {
@@ -197,6 +252,8 @@ onMounted(() => {
     if (darkModeEnabled.value) {
         document.body.classList.add('dark-mode')
     }
+    // Verificar status da bateria
+    checkBatteryStatus()
 })
 </script>
 
@@ -384,10 +441,54 @@ onMounted(() => {
                                 </div>
                             </div>
                         </section>
+
+                        <!-- Battery Optimization Section (Android only) -->
+                        <section v-if="isNativePlatform" class="settings-section">
+                            <h3>🔋 Economia de Bateria</h3>
+                            <p class="section-description">
+                                Para capturar notificações com o app fechado, desative a economia de bateria
+                            </p>
+
+                            <div class="battery-status" :class="{ 'status-ok': batteryOptimizationIgnored, 'status-warning': !batteryOptimizationIgnored }">
+                                <div class="status-icon">
+                                    {{ batteryOptimizationIgnored ? '✅' : '⚠️' }}
+                                </div>
+                                <div class="status-text">
+                                    <strong>{{ batteryOptimizationIgnored ? 'Economia desativada' : 'Economia de bateria ativa' }}</strong>
+                                    <span>{{ batteryOptimizationIgnored ? 'O app pode capturar notificações em background' : 'O sistema pode impedir o app de funcionar em background' }}</span>
+                                </div>
+                            </div>
+
+                            <div class="battery-actions">
+                                <button v-if="!batteryOptimizationIgnored" class="btn-battery-request" @click="requestIgnoreBattery">
+                                    🔓 Desativar Economia
+                                </button>
+                                <button class="btn-battery-settings" @click="openBatterySettings">
+                                    ⚙️ Abrir Configurações do App
+                                </button>
+                            </div>
+
+                            <div class="battery-instructions">
+                                <p><strong>📱 Samsung:</strong> Vá em Bateria → Uso em segundo plano → Escolha "Irrestrito"</p>
+                                <p><strong>📱 Xiaomi:</strong> Desative "Restrição de segundo plano" e "Economia de energia"</p>
+                            </div>
+                        </section>
                     </div>
                 </div>
             </div>
         </Transition>
+
+        <!-- Modal de confirmação para excluir budget -->
+        <ConfirmModal
+            :show="showDeleteConfirm"
+            title="Excluir Budget"
+            message="Tem certeza que deseja <strong>excluir</strong> este budget? Esta ação não pode ser desfeita."
+            type="danger"
+            confirm-text="Excluir"
+            confirm-icon="🗑️"
+            @confirm="confirmDeleteBudget"
+            @cancel="cancelDeleteBudget"
+        />
     </Teleport>
 </template>
 
@@ -807,6 +908,104 @@ input:checked+.slider {
 
 input:checked+.slider:before {
     transform: translateX(22px);
+}
+
+/* Battery Optimization Styles */
+.battery-status {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.battery-status.status-ok {
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    border: 1px solid #28a745;
+}
+
+.battery-status.status-warning {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    border: 1px solid #ffc107;
+}
+
+.status-icon {
+    font-size: 28px;
+}
+
+.status-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.status-text strong {
+    font-size: 15px;
+    color: #333;
+}
+
+.status-text span {
+    font-size: 13px;
+    color: #666;
+}
+
+.battery-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.btn-battery-request {
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-battery-request:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-battery-settings {
+    padding: 12px 20px;
+    background: #f0f0f0;
+    color: #333;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-battery-settings:hover {
+    background: #e0e0e0;
+}
+
+.battery-instructions {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 14px;
+}
+
+.battery-instructions p {
+    margin: 0;
+    padding: 6px 0;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.4;
+}
+
+.battery-instructions p:not(:last-child) {
+    border-bottom: 1px solid #eee;
 }
 
 /* Modal Transitions */

@@ -7,6 +7,21 @@ export interface NotificationPluginPlugin {
     // Abre configurações para habilitar permissão
     requestPermission(): Promise<void>
 
+    // Verifica se está ignorando otimizações de bateria
+    checkBatteryOptimization(): Promise<{ isIgnoring: boolean }>
+
+    // Solicita para ignorar otimizações de bateria (importante para background)
+    requestIgnoreBatteryOptimization(): Promise<void>
+
+    // Abre configurações de bateria do app
+    openBatterySettings(): Promise<void>
+
+    // Carrega despesas pendentes que foram salvas enquanto o app estava fechado
+    loadPendingExpenses(): Promise<{ expenses: BankExpenseEvent[], count: number }>
+
+    // Limpa as despesas pendentes após serem processadas
+    clearPendingExpenses(): Promise<void>
+
     // Listener para receber notificações de gastos
     addListener(
         eventName: 'bankExpense',

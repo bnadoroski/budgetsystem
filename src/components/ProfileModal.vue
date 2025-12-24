@@ -141,6 +141,18 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Modal de confirmação para remover compartilhamento -->
+        <ConfirmModal
+            :show="showRemoveShareConfirm"
+            title="Remover Compartilhamento"
+            :message="`Deseja <strong>remover o compartilhamento</strong> com <strong>${emailToRemove}</strong>?`"
+            type="warning"
+            confirm-text="Remover"
+            confirm-icon="🔗"
+            @confirm="confirmRemoveShare"
+            @cancel="cancelRemoveShare"
+        />
     </Teleport>
 </template>
 
@@ -148,6 +160,7 @@
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
+import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps<{
     show: boolean
@@ -173,6 +186,8 @@ const selectedBudgetIds = ref<Set<string>>(new Set())
 const isUpdating = ref(false)
 const updateSuccess = ref(false)
 const updateError = ref('')
+const showRemoveShareConfirm = ref(false)
+const emailToRemove = ref('')
 
 // Compartilhamentos ativos (convites aceitos)
 const activeShares = computed(() => {
@@ -299,14 +314,24 @@ const handleShare = async () => {
 }
 
 const handleRemoveShare = async (email: string) => {
-    if (!confirm(`Deseja remover o compartilhamento com ${email}?`)) return
+    emailToRemove.value = email
+    showRemoveShareConfirm.value = true
+}
 
+const confirmRemoveShare = async () => {
     try {
         // TODO: Implementar remoção de compartilhamento
-        console.log('Remover compartilhamento com:', email)
+        console.log('Remover compartilhamento com:', emailToRemove.value)
     } catch (error) {
         console.error('Erro ao remover compartilhamento:', error)
     }
+    emailToRemove.value = ''
+    showRemoveShareConfirm.value = false
+}
+
+const cancelRemoveShare = () => {
+    emailToRemove.value = ''
+    showRemoveShareConfirm.value = false
 }
 
 const handleReviewInvite = (invite: any) => {

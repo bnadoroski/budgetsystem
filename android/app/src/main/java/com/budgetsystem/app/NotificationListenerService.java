@@ -7,25 +7,108 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import androidx.core.app.NotificationCompat;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.HashSet;
+import java.util.Set;
 import java.net.URL;
 import java.net.HttpURLConnection;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.io.OutputStream;
 
 public class NotificationListenerService extends android.service.notification.NotificationListenerService {
     private static final String TAG = "BudgetNotifListener";
     private static final String CHANNEL_ID = "budget_listener_channel";
+    
+    // Guarda IDs de notificações já processadas para não duplicar
+    private Set<String> processedNotificationIds = new HashSet<>();
+    
+    // BroadcastReceiver para verificar notificações quando o celular desbloquear
+    private BroadcastReceiver checkNotificationsReceiver;
 
     @Override
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "NotificationListenerService CRIADO!");
+        
+        // Registra receiver para verificar notificações ao desbloquear
+        registerCheckNotificationsReceiver();
+    }
+    
+    /**
+     * Registra um BroadcastReceiver para ouvir quando o celular é desbloqueado.
+     */
+    private void registerCheckNotificationsReceiver() {
+        checkNotificationsReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("com.budgetsystem.CHECK_NOTIFICATIONS".equals(intent.getAction()) ||
+                    Intent.ACTION_USER_PRESENT.equals(intent.getAction())) {
+                    Log.d(TAG, "📱 Celular desbloqueado - verificando notificações ativas...");
+                    checkActiveNotifications();
+                }
+            }
+        };
+        
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("com.budgetsystem.CHECK_NOTIFICATIONS");
+        filter.addAction(Intent.ACTION_USER_PRESENT);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(checkNotificationsReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(checkNotificationsReceiver, filter);
+        }
+        
+        Log.d(TAG, "✅ CheckNotificationsReceiver registrado!");
+    }
+    
+    /**
+     * Verifica todas as notificações ativas na barra de notificações.
+     * Útil para capturar notificações que chegaram quando o celular estava bloqueado.
+     */
+    private void checkActiveNotifications() {
+        try {
+            StatusBarNotification[] activeNotifications = getActiveNotifications();
+            
+            if (activeNotifications == null || activeNotifications.length == 0) {
+                Log.d(TAG, "📭 Nenhuma notificação ativa");
+                return;
+            }
+            
+            Log.d(TAG, "📬 Encontradas " + activeNotifications.length + " notificações ativas");
+            
+            for (StatusBarNotification sbn : activeNotifications) {
+                // Cria um ID único para esta notificação
+                String notifId = sbn.getPackageName() + "_" + sbn.getId() + "_" + sbn.getPostTime();
+                
+                // Verifica se já processamos esta notificação
+                if (processedNotificationIds.contains(notifId)) {
+                    Log.d(TAG, "⏭️ Notificação já processada: " + notifId);
+                    continue;
+                }
+                
+                // Processa a notificação
+                Log.d(TAG, "🔍 Verificando notificação ativa de: " + sbn.getPackageName());
+                processNotification(sbn, true);
+            }
+            
+            // Limpa IDs antigos para não crescer infinitamente (mantém últimas 100)
+            if (processedNotificationIds.size() > 100) {
+                processedNotificationIds.clear();
+            }
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao verificar notificações ativas: " + e.getMessage(), e);
+        }
     }
     
     private void createNotificationChannel() {
@@ -69,6 +152,13 @@ public class NotificationListenerService extends android.service.notification.No
     public void onListenerConnected() {
         super.onListenerConnected();
         Log.d(TAG, "✅ NotificationListener CONECTADO e ATIVO!");
+        
+        // Inicia o Foreground Service para manter o app ativo
+        startForegroundServiceIfNeeded();
+        
+        // Verifica notificações que já estavam na barra quando o listener conectou
+        Log.d(TAG, "🔍 Verificando notificações existentes ao conectar...");
+        checkActiveNotifications();
     }
 
     @Override
@@ -80,19 +170,59 @@ public class NotificationListenerService extends android.service.notification.No
         requestRebind(null);
     }
     
+    /**
+     * Inicia o Foreground Service para manter o app ativo em segundo plano.
+     * Isso evita que o Android mate o serviço quando a tela está bloqueada.
+     */
+    private void startForegroundServiceIfNeeded() {
+        try {
+            Intent serviceIntent = new Intent(this, BudgetForegroundService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+            Log.d(TAG, "🚀 BudgetForegroundService iniciado!");
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao iniciar ForegroundService: " + e.getMessage());
+        }
+    }
+    
     @Override
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "NotificationListenerService DESTRUIDO!");
+        
+        // Desregistra o receiver
+        if (checkNotificationsReceiver != null) {
+            try {
+                unregisterReceiver(checkNotificationsReceiver);
+            } catch (Exception e) {
+                Log.w(TAG, "Erro ao desregistrar receiver: " + e.getMessage());
+            }
+        }
     }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        processNotification(sbn, false);
+    }
+    
+    /**
+     * Processa uma notificação, seja em tempo real ou verificação posterior.
+     * @param sbn A notificação a processar
+     * @param isFromActiveCheck Se é de verificação de notificações ativas (após desbloqueio)
+     */
+    private void processNotification(StatusBarNotification sbn, boolean isFromActiveCheck) {
         try {
-            Log.d(TAG, "📱 ===== NOVA NOTIFICAÇÃO RECEBIDA =====");
+            String source = isFromActiveCheck ? "VERIFICAÇÃO AO DESBLOQUEAR" : "TEMPO REAL";
+            Log.d(TAG, "📱 ===== NOTIFICAÇÃO [" + source + "] =====");
             
             String packageName = sbn.getPackageName();
             Log.d(TAG, "📦 Package: " + packageName);
+            
+            // Cria ID único para rastrear notificações processadas
+            String notifId = packageName + "_" + sbn.getId() + "_" + sbn.getPostTime();
 
             Bundle extras = sbn.getNotification().extras;
             if (extras == null) {
@@ -135,6 +265,9 @@ public class NotificationListenerService extends android.service.notification.No
             }
 
             Log.d(TAG, "💰 NOTIFICAÇÃO BANCÁRIA DETECTADA!");
+            
+            // Marca como processada para não duplicar
+            processedNotificationIds.add(notifId);
 
             // Extrai valor monetário - padrão com r minúsculo (fullText está em toLowerCase)
             // Padrão: r$ 10,00 ou r$ 10 ou r$ 1.234,56
@@ -190,9 +323,12 @@ public class NotificationListenerService extends android.service.notification.No
                 Log.d(TAG, "📤 Enviando para NotificationPlugin...");
                 plugin.notifyBankExpense(bank, amount, description, category, merchantName, installmentNumber, installmentTotal);
                 Log.d(TAG, "✅ Enviado com sucesso!");
-            } else {
-                Log.e(TAG, "❌ NotificationPlugin não está disponível!");
             }
+            
+            // SEMPRE salva no SharedPreferences como backup
+            // Isso garante que mesmo se o evento JavaScript se perder, 
+            // a despesa será carregada quando o app abrir/recarregar
+            savePendingExpense(bank, amount, description, category, merchantName, installmentNumber, installmentTotal);
             
             // Envia também para FCM Cloud Function (opcional, para funcionar remotamente)
             sendToFirebaseFunction(bank, amount, description, category);
@@ -204,7 +340,7 @@ public class NotificationListenerService extends android.service.notification.No
 
     private String identifyBank(String packageName) {
         // Mapeia packages para nomes de bancos
-        if (packageName.contains("nubank")) return "Nubank";
+        if (packageName.contains("nubank") || packageName.contains("nu.production")) return "Nubank";
         if (packageName.contains("itau")) return "Itaú";
         if (packageName.contains("bradesco")) return "Bradesco";
         if (packageName.contains("santander")) return "Santander";
@@ -419,5 +555,46 @@ public class NotificationListenerService extends android.service.notification.No
     public void onNotificationRemoved(StatusBarNotification sbn) {
         // Opcional: log quando notificação é removida
         Log.d(TAG, "🗑️ Notificação removida: " + sbn.getPackageName());
+    }
+    
+    /**
+     * Salva despesa pendente em SharedPreferences para quando o app estiver fechado.
+     * Quando o app abrir novamente, essas despesas serão carregadas.
+     */
+    private void savePendingExpense(String bank, double amount, String description, 
+                                    String category, String merchantName, 
+                                    int installmentNumber, int installmentTotal) {
+        try {
+            SharedPreferences prefs = getSharedPreferences("budget_pending_expenses", MODE_PRIVATE);
+            String existingJson = prefs.getString("expenses", "[]");
+            
+            JSONArray expenses = new JSONArray(existingJson);
+            
+            JSONObject expense = new JSONObject();
+            expense.put("bank", bank);
+            expense.put("amount", amount);
+            expense.put("description", description);
+            expense.put("category", category);
+            expense.put("timestamp", System.currentTimeMillis());
+            
+            if (merchantName != null && !merchantName.isEmpty()) {
+                expense.put("merchantName", merchantName);
+            }
+            
+            if (installmentTotal > 0) {
+                expense.put("installmentNumber", installmentNumber);
+                expense.put("installmentTotal", installmentTotal);
+            }
+            
+            expenses.put(expense);
+            
+            // Salvar
+            prefs.edit().putString("expenses", expenses.toString()).apply();
+            
+            Log.d(TAG, "💾 Despesa salva em SharedPreferences! Total pendentes: " + expenses.length());
+            
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao salvar despesa pendente: " + e.getMessage(), e);
+        }
     }
 }

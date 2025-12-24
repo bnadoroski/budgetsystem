@@ -96,14 +96,13 @@
                                     <div class="input-group">
                                         <label for="installmentNumber">Parcela Atual:</label>
                                         <input id="installmentNumber" v-model.number="editingInstallmentNumber"
-                                            type="number" min="1" :max="editingInstallmentTotal || 12"
-                                            placeholder="Ex: 1" />
+                                            type="number" min="1" :max="editingInstallmentTotal || 12" />
                                     </div>
                                     <div class="installment-separator">/</div>
                                     <div class="input-group">
                                         <label for="installmentTotal">Total de Parcelas:</label>
                                         <input id="installmentTotal" v-model.number="editingInstallmentTotal"
-                                            type="number" min="1" max="99" placeholder="Ex: 12" />
+                                            type="number" min="1" max="99" />
                                     </div>
                                 </div>
                             </div>
@@ -126,6 +125,18 @@
                         </div>
                     </div>
                 </Transition>
+
+                <!-- Modal de confirmação para rejeitar -->
+                <ConfirmModal
+                    :show="showRejectConfirm"
+                    title="Rejeitar Despesa"
+                    message="Tem certeza que deseja <strong>rejeitar</strong> esta despesa? Ela será removida da lista."
+                    type="danger"
+                    confirm-text="Rejeitar"
+                    confirm-icon="❌"
+                    @confirm="confirmReject"
+                    @cancel="cancelReject"
+                />
             </div>
         </Transition>
     </Teleport>
@@ -134,6 +145,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import ConfirmModal from './ConfirmModal.vue'
 
 interface PendingExpense {
     id: string
@@ -165,6 +177,8 @@ const swipingId = ref<string | null>(null)
 const swipeX = ref(0)
 const startX = ref(0)
 const isDragging = ref(false)
+const showRejectConfirm = ref(false)
+const expenseToReject = ref<PendingExpense | null>(null)
 
 const pendingExpenses = computed(() => budgetStore.pendingExpenses)
 
@@ -317,8 +331,9 @@ const editExpense = (expense: PendingExpense) => {
     editingExpense.value = expense
     // Inicializa campos de parcelamento com valores da despesa
     editingHasInstallments.value = !!(expense.installmentNumber && expense.installmentTotal)
-    editingInstallmentNumber.value = expense.installmentNumber
-    editingInstallmentTotal.value = expense.installmentTotal
+    // Se já tem parcelas detectadas, usa os valores, senão preenche com 1/1 como padrão
+    editingInstallmentNumber.value = expense.installmentNumber || 1
+    editingInstallmentTotal.value = expense.installmentTotal || 1
 }
 
 const selectBudget = async (budgetName: string) => {
@@ -370,9 +385,21 @@ const createNewBudget = () => {
 }
 
 const rejectExpense = (expense: PendingExpense) => {
-    if (confirm('Tem certeza que deseja rejeitar esta despesa?')) {
-        budgetStore.removePendingExpense(expense.id)
+    expenseToReject.value = expense
+    showRejectConfirm.value = true
+}
+
+const confirmReject = () => {
+    if (expenseToReject.value) {
+        budgetStore.removePendingExpense(expenseToReject.value.id)
     }
+    expenseToReject.value = null
+    showRejectConfirm.value = false
+}
+
+const cancelReject = () => {
+    expenseToReject.value = null
+    showRejectConfirm.value = false
 }
 
 const cancelEdit = () => {

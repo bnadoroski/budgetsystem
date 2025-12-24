@@ -88,14 +88,36 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Modal de confirmação para excluir grupo -->
+        <ConfirmModal
+            :show="showDeleteConfirm"
+            :title="'Excluir Grupo'"
+            :message="deleteConfirmMessage"
+            type="danger"
+            confirm-text="Excluir"
+            confirm-icon="🗑️"
+            @confirm="confirmDeleteGroup"
+            @cancel="cancelDeleteGroup"
+        />
+
+        <!-- Toast de erro -->
+        <ToastNotification
+            :show="showErrorToast"
+            :message="errorMessage"
+            type="error"
+            @close="showErrorToast = false"
+        />
     </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import type { BudgetGroup } from '@/types/budget'
 import ColorPicker from './ColorPicker.vue'
+import ConfirmModal from './ConfirmModal.vue'
+import ToastNotification from './ToastNotification.vue'
 
 const props = defineProps<{
     show: boolean
@@ -111,6 +133,10 @@ const newGroupColor = ref('#4CAF50')
 const editingGroupId = ref<string | null>(null)
 const editName = ref('')
 const editColor = ref('')
+const showDeleteConfirm = ref(false)
+const groupIdToDelete = ref<string | null>(null)
+const showErrorToast = ref(false)
+const errorMessage = ref('')
 
 const handleAddGroup = async () => {
     if (!newGroupName.value) return
@@ -121,7 +147,8 @@ const handleAddGroup = async () => {
     )
 
     if (nameExists) {
-        alert(`❌ Já existe um grupo chamado "${newGroupName.value}"`)
+        errorMessage.value = `Já existe um grupo chamado "${newGroupName.value}"`
+        showErrorToast.value = true
         return
     }
 
@@ -155,14 +182,29 @@ const handleSaveEdit = async () => {
 }
 
 const handleDeleteGroup = async (groupId: string) => {
-    const budgetCount = getBudgetCount(groupId)
-    const message = budgetCount > 0
-        ? `Este grupo tem ${budgetCount} budget(s). Os budgets não serão deletados, apenas o grupo. Confirma?`
-        : 'Tem certeza que deseja excluir este grupo?'
+    groupIdToDelete.value = groupId
+    showDeleteConfirm.value = true
+}
 
-    if (confirm(message)) {
-        await budgetStore.deleteGroup(groupId)
+const deleteConfirmMessage = computed(() => {
+    if (!groupIdToDelete.value) return ''
+    const budgetCount = getBudgetCount(groupIdToDelete.value)
+    return budgetCount > 0
+        ? `Este grupo tem <strong>${budgetCount} budget(s)</strong>. Os budgets não serão deletados, apenas o grupo.`
+        : 'Tem certeza que deseja <strong>excluir</strong> este grupo?'
+})
+
+const confirmDeleteGroup = async () => {
+    if (groupIdToDelete.value) {
+        await budgetStore.deleteGroup(groupIdToDelete.value)
     }
+    groupIdToDelete.value = null
+    showDeleteConfirm.value = false
+}
+
+const cancelDeleteGroup = () => {
+    groupIdToDelete.value = null
+    showDeleteConfirm.value = false
 }
 
 const getBudgetCount = (groupId: string) => {

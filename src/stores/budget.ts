@@ -743,6 +743,19 @@ export const useBudgetStore = defineStore('budget', () => {
     // ===== PENDING EXPENSES FROM NOTIFICATIONS =====
 
     const addPendingExpense = (expense: Omit<PendingExpense, 'id'>) => {
+        // Check for duplicates based on amount, timestamp (within 5 seconds), and bank
+        const isDuplicate = pendingExpenses.value.some(existing => {
+            const timeDiff = Math.abs(existing.timestamp - expense.timestamp)
+            return existing.amount === expense.amount &&
+                existing.bank === expense.bank &&
+                timeDiff < 5000 // Within 5 seconds
+        })
+
+        if (isDuplicate) {
+            console.log('⚠️ Duplicate expense detected, skipping:', expense)
+            return
+        }
+
         const newExpense: PendingExpense = {
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             ...expense

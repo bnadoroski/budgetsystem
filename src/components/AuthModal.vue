@@ -58,12 +58,22 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Toast de erro -->
+        <ToastNotification
+            :show="showErrorToast"
+            :message="toastMessage"
+            type="error"
+            :duration="5000"
+            @close="showErrorToast = false"
+        />
     </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import ToastNotification from './ToastNotification.vue'
 
 const props = defineProps<{
     show: boolean
@@ -79,6 +89,8 @@ const email = ref('')
 const password = ref('')
 const isLogin = ref(true)
 const loading = ref(false)
+const showErrorToast = ref(false)
+const toastMessage = ref('')
 
 watch(() => props.show, (newVal) => {
     if (newVal) {
@@ -133,11 +145,12 @@ const handleGoogleSignIn = async () => {
     } catch (error) {
         loading.value = false
         console.error('❌ Erro no Google Sign In:', error)
-        const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido'
-        authStore.error = `Erro ao fazer login com Google: ${errorMessage}`
+        const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido'
+        authStore.error = `Erro ao fazer login com Google: ${errorMsg}`
 
-        // Mostrar alert também para garantir que o usuário veja
-        alert(`Erro ao fazer login com Google:\n\n${errorMessage}\n\nVerifique o console para mais detalhes.`)
+        // Mostrar toast de erro
+        toastMessage.value = `Erro ao fazer login com Google: ${errorMsg}`
+        showErrorToast.value = true
     }
 }
 

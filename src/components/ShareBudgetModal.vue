@@ -91,12 +91,25 @@
                 </div>
             </div>
         </Transition>
+
+        <!-- Modal de confirmação para remover compartilhamento -->
+        <ConfirmModal
+            :show="showUnshareConfirm"
+            title="Remover Compartilhamento"
+            message="Deseja <strong>remover o compartilhamento</strong> deste budget? Os usuários que têm acesso não poderão mais visualizá-lo."
+            type="warning"
+            confirm-text="Remover"
+            confirm-icon="🔗"
+            @confirm="confirmUnshare"
+            @cancel="cancelUnshare"
+        />
     </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps<{
     show: boolean
@@ -112,6 +125,8 @@ const selectedBudgets = ref<string[]>([])
 const isSharing = ref(false)
 const shareSuccess = ref(false)
 const shareError = ref('')
+const showUnshareConfirm = ref(false)
+const budgetToUnshare = ref<string | null>(null)
 
 const availableBudgets = computed(() => {
     return budgetStore.budgets.filter(b => !b.sharedWith || b.sharedWith.length === 0)
@@ -176,18 +191,30 @@ const handleShare = async () => {
 }
 
 const handleUnshare = async (budgetId: string) => {
-    if (confirm('Deseja remover o compartilhamento deste budget?')) {
+    budgetToUnshare.value = budgetId
+    showUnshareConfirm.value = true
+}
+
+const confirmUnshare = async () => {
+    if (budgetToUnshare.value) {
         try {
-            const budget = budgetStore.budgets.find(b => b.id === budgetId)
+            const budget = budgetStore.budgets.find(b => b.id === budgetToUnshare.value)
             if (budget && budget.sharedWith && budget.sharedWith.length > 0) {
                 for (const userId of budget.sharedWith) {
-                    await budgetStore.unshareBudget(budgetId, userId)
+                    await budgetStore.unshareBudget(budgetToUnshare.value, userId)
                 }
             }
         } catch (error) {
             console.error('Erro ao remover compartilhamento:', error)
         }
     }
+    budgetToUnshare.value = null
+    showUnshareConfirm.value = false
+}
+
+const cancelUnshare = () => {
+    budgetToUnshare.value = null
+    showUnshareConfirm.value = false
 }
 </script>
 
