@@ -97,6 +97,20 @@ public class NotificationPlugin extends Plugin {
     public void notifyBankExpense(String bank, double amount, String description, String category) {
         notifyBankExpense(bank, amount, description, category, null, 0, 0);
     }
+    
+    // Chamado quando detecta notificação de verificação de email
+    public void notifyEmailVerification(String title, String text) {
+        Log.d(TAG, "📧 notifyEmailVerification chamado:");
+        Log.d(TAG, "  - Title: " + title);
+        Log.d(TAG, "  - Text: " + text);
+
+        JSObject ret = new JSObject();
+        ret.put("title", title != null ? title : "");
+        ret.put("text", text != null ? text : "");
+
+        Log.d(TAG, "📤 Enviando evento 'emailVerification' para o JavaScript");
+        notifyListeners("emailVerification", ret);
+    }
 
     @PluginMethod
     public void echo(PluginCall call) {

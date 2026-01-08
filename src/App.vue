@@ -697,6 +697,24 @@ onMounted(async () => {
         showPendingExpensesModal.value = true
       }
     })
+    
+    // Listener para verificação de email
+    await NotificationPlugin.addListener('emailVerification', async () => {
+      console.log('📧 ===== NOTIFICAÇÃO DE VERIFICAÇÃO DE EMAIL =====')
+      
+      // Tenta verificar automaticamente se o email foi verificado
+      if (authStore.isAuthenticated && !authStore.isEmailVerified) {
+        console.log('🔄 Verificando status do email...')
+        const result = await authStore.checkEmailVerification()
+        if (result.verified) {
+          console.log('✅ Email verificado com sucesso!')
+          // Mostra toast de sucesso
+          window.dispatchEvent(new CustomEvent('show-toast', {
+            detail: { message: '✓ Email verificado com sucesso!', type: 'success' }
+          }))
+        }
+      }
+    })
 
     // Carrega despesas pendentes que foram capturadas com o app fechado
     try {
@@ -746,10 +764,12 @@ onMounted(async () => {
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
     } else {
       // Não está autenticado - limpa dados locais e grupos fantasmas
+      // IMPORTANTE: NÃO limpa pendingExpenses - elas devem sobreviver ao logout
+      // pois são capturadas pelo NotificationListener mesmo com app fechado
       localStorage.removeItem('budgets')
       localStorage.removeItem('budgetGroups')
-      localStorage.removeItem('pendingExpenses')
-      budgetStore.clearLocalData() // Limpa grupos em memória também
+      // localStorage.removeItem('pendingExpenses') - REMOVIDO para manter despesas
+      budgetStore.clearLocalData() // Limpa grupos em memória também (mas não pendingExpenses)
 
       // Abre modal de login automaticamente
       setTimeout(() => {

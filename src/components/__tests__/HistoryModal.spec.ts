@@ -54,7 +54,7 @@ describe('HistoryModal Component', () => {
         expect(header.text()).toContain('Histórico')
     })
 
-    it('should show empty state when no history', async () => {
+    it('should show current month data when modal opens', async () => {
         const wrapper = mount(HistoryModal, {
             props: { show: true }
         })
@@ -63,7 +63,8 @@ describe('HistoryModal Component', () => {
         await wrapper.vm.$nextTick()
         await new Promise(resolve => setTimeout(resolve, 10))
 
-        expect(wrapper.text()).toContain('Nenhum histórico encontrado')
+        // Modal now starts showing current month
+        expect(wrapper.text()).toContain('Dados do mês atual')
     })
 
     it('should calculate percentage correctly', () => {

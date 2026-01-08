@@ -96,7 +96,12 @@
                         <!-- Manage Shared Budgets Section - Para ambos os participantes -->
                         <div v-if="hasActiveSharing" class="action-section manage-budgets-section">
                             <h3>Gerenciar Budgets Compartilhados</h3>
-                            <p class="section-description">Escolha quais dos SEUS budgets você quer compartilhar</p>
+                            <div class="section-header">
+                                <p class="section-description">Escolha quais dos SEUS budgets você quer compartilhar</p>
+                                <button type="button" class="btn-select-all" @click="toggleSelectAllBudgets">
+                                    {{ allBudgetsSelected ? '❌ Desmarcar' : '✅ Selecionar todos' }}
+                                </button>
+                            </div>
 
                             <div class="budgets-list">
                                 <label v-for="budget in myBudgets" :key="budget.id" class="budget-checkbox">
@@ -324,6 +329,24 @@ const initializeSelectedBudgets = () => {
             if (budget.sharedWith?.includes(partnerId.value!)) {
                 selectedBudgetIds.value.add(budget.id)
             }
+        })
+    }
+}
+
+// Verificar se todos os budgets estão selecionados
+const allBudgetsSelected = computed(() => {
+    return myBudgets.value.length > 0 && selectedBudgetIds.value.size === myBudgets.value.length
+})
+
+// Toggle selecionar/desmarcar todos os budgets
+const toggleSelectAllBudgets = () => {
+    if (allBudgetsSelected.value) {
+        // Desmarcar todos
+        selectedBudgetIds.value.clear()
+    } else {
+        // Selecionar todos
+        myBudgets.value.forEach(budget => {
+            selectedBudgetIds.value.add(budget.id)
         })
     }
 }
@@ -564,8 +587,32 @@ const updateSharing = async () => {
 .section-description {
     font-size: 14px;
     color: #666;
-    margin: 0 0 16px 0;
+    margin: 0;
     line-height: 1.4;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 8px;
+}
+
+.btn-select-all {
+    padding: 6px 12px;
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.btn-select-all:hover {
+    background: #e8e8e8;
+    border-color: #ccc;
 }
 
 .share-section {
@@ -1084,6 +1131,17 @@ body.dark-mode .action-section h3 {
 
 body.dark-mode .section-description {
     color: #aaa;
+}
+
+body.dark-mode .btn-select-all {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #ccc;
+}
+
+body.dark-mode .btn-select-all:hover {
+    background: #3a3a4e;
+    border-color: #4a4a5e;
 }
 
 body.dark-mode .share-input {

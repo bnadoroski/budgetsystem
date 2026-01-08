@@ -259,6 +259,23 @@ public class NotificationListenerService extends android.service.notification.No
                 fullText.contains("real") ||
                 fullText.contains("reais");
 
+            // Verificar se é notificação de verificação de email do Firebase
+            boolean isFirebaseVerification = 
+                (packageName.contains("gmail") || packageName.contains("email") || packageName.contains("outlook") || packageName.contains("mail")) &&
+                (fullText.contains("verify your email") || 
+                 fullText.contains("verificar seu email") ||
+                 fullText.contains("verifique seu email") ||
+                 fullText.contains("confirme seu email") ||
+                 fullText.contains("confirm your email") ||
+                 fullText.contains("firebase") ||
+                 (title != null && title.toLowerCase().contains("verificação")));
+
+            if (isFirebaseVerification) {
+                Log.d(TAG, "📧 NOTIFICAÇÃO DE VERIFICAÇÃO DE EMAIL DETECTADA!");
+                handleEmailVerificationNotification(packageName, title, text);
+                return;
+            }
+
             if (!isBankNotification) {
                 Log.d(TAG, "❌ Não é notificação bancária, ignorando");
                 return;
@@ -310,8 +327,8 @@ public class NotificationListenerService extends android.service.notification.No
             String category = categorizeExpense(fullText);
             Log.d(TAG, "🏷️ Categoria: " + category);
 
-            // Descrição (título ou texto)
-            String description = title != null && !title.isEmpty() ? title : text;
+            // Descrição - tenta extrair informação útil do texto ao invés do título genérico
+            String description = extractSmartDescription(title, text, bigText, fullText);
             if (description.length() > 100) {
                 description = description.substring(0, 100) + "...";
             }
@@ -410,32 +427,150 @@ public class NotificationListenerService extends android.service.notification.No
             }
         }).start();
     }
+    
+    /**
+     * Trata notificação de verificação de email do Firebase.
+     * Envia um broadcast para o app informando que chegou email de verificação.
+     */
+    private void handleEmailVerificationNotification(String packageName, String title, String text) {
+        try {
+            Log.d(TAG, "📧 Processando notificação de verificação de email...");
+            
+            // Envia broadcast para o app
+            Intent emailVerificationIntent = new Intent("com.budgetsystem.app.EMAIL_VERIFICATION_RECEIVED");
+            emailVerificationIntent.setPackage(getPackageName());
+            emailVerificationIntent.putExtra("title", title != null ? title : "");
+            emailVerificationIntent.putExtra("text", text != null ? text : "");
+            emailVerificationIntent.putExtra("source", packageName);
+            sendBroadcast(emailVerificationIntent);
+            
+            Log.d(TAG, "✅ Broadcast de verificação de email enviado!");
+            
+            // Também notifica via plugin se disponível
+            if (NotificationPlugin.getInstance() != null) {
+                NotificationPlugin.getInstance().notifyEmailVerification(title, text);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao processar notificação de verificação: " + e.getMessage());
+        }
+    }
 
     private String categorizeExpense(String text) {
         // Categoriza baseado em palavras-chave
+        // IMPORTANTE: Verificar Pix/Transferência ANTES de transporte
+        // para evitar falsos positivos
+        if (text.contains("pix") || text.contains("transferência") || text.contains("transferencia")) {
+            return "Transferência";
+        }
+        if (text.contains("boleto") || text.contains("pagamento de fatura")) {
+            return "Contas";
+        }
         if (text.contains("alimentação") || text.contains("restaurante") || 
-            text.contains("ifood") || text.contains("uber eats")) {
+            text.contains("ifood") || text.contains("uber eats") || text.contains("rappi")) {
             return "Alimentação";
         }
         if (text.contains("transporte") || text.contains("uber") || 
-            text.contains("99") || text.contains("gasolina")) {
+            text.contains("99") || text.contains("gasolina") || text.contains("estacionamento")) {
             return "Transporte";
         }
         if (text.contains("mercado") || text.contains("supermercado")) {
             return "Mercado";
         }
-        if (text.contains("farmácia") || text.contains("saúde") || 
-            text.contains("hospital") || text.contains("médico")) {
+        if (text.contains("farmácia") || text.contains("farmacia") || text.contains("saúde") || 
+            text.contains("hospital") || text.contains("médico") || text.contains("medico")) {
             return "Saúde";
         }
         if (text.contains("conta") || text.contains("luz") || 
-            text.contains("água") || text.contains("internet")) {
+            text.contains("água") || text.contains("internet") || text.contains("energia")) {
             return "Contas";
         }
-        if (text.contains("transferência") || text.contains("pix")) {
-            return "Transferência";
-        }
         return "Outros";
+    }
+    
+    /**
+     * Extrai uma descrição mais útil da notificação.
+     * Em vez de usar apenas o título genérico (ex: "Boleto pago com sucesso"),
+     * tenta extrair informações relevantes como nome do destinatário, empresa, etc.
+     */
+    private String extractSmartDescription(String title, String text, String bigText, String fullText) {
+        // Usa bigText se disponível, senão text
+        String searchText = (bigText != null && !bigText.isEmpty()) ? bigText : text;
+        if (searchText == null) searchText = "";
+        
+        // Padrão: "para NOME" (boletos, pagamentos)
+        Pattern patternPara = Pattern.compile("para\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-]+?)(?:\\s+(?:foi|no valor|r\\$|\\.|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherPara = patternPara.matcher(searchText);
+        if (matcherPara.find()) {
+            String recipient = matcherPara.group(1).trim();
+            if (recipient.length() >= 3 && recipient.length() <= 60) {
+                return capitalizeWords(recipient);
+            }
+        }
+        
+        // Padrão: "de NOME" (Pix recebido, transferência recebida)
+        Pattern patternDe = Pattern.compile("(?:pix|transferência|valor)\\s+(?:recebido|de)\\s+(?:de\\s+)?([A-Za-zÀ-ÿ\\s]+?)(?:,|\\.|cpf|no valor|r\\$|$)", Pattern.CASE_INSENSITIVE);
+        Matcher matcherDe = patternDe.matcher(searchText);
+        if (matcherDe.find()) {
+            String sender = matcherDe.group(1).trim();
+            if (sender.length() >= 3 && sender.length() <= 60) {
+                return "Pix de " + capitalizeWords(sender);
+            }
+        }
+        
+        // Padrão: "Compra em LOJA"
+        Pattern patternCompra = Pattern.compile("compra\\s+(?:em|no|na)\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-]+?)(?:\\s+(?:no valor|aprovada|r\\$|\\.|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherCompra = patternCompra.matcher(searchText);
+        if (matcherCompra.find()) {
+            String store = matcherCompra.group(1).trim();
+            if (store.length() >= 2 && store.length() <= 50) {
+                return "Compra em " + capitalizeWords(store);
+            }
+        }
+        
+        // Padrão: "pagamento de fatura" específico para cartão
+        if (fullText.contains("pagamento de fatura")) {
+            return "Pagamento de fatura de cartão";
+        }
+        
+        // Padrão: "Pix enviado para NOME"
+        Pattern patternPixPara = Pattern.compile("pix\\s+(?:enviado\\s+)?para\\s+([A-Za-zÀ-ÿ\\s]+?)(?:\\s+(?:no valor|r\\$|\\.|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherPixPara = patternPixPara.matcher(searchText);
+        if (matcherPixPara.find()) {
+            String recipient = matcherPixPara.group(1).trim();
+            if (recipient.length() >= 3 && recipient.length() <= 50) {
+                return "Pix para " + capitalizeWords(recipient);
+            }
+        }
+        
+        // Se o título é muito genérico, tenta usar parte do texto
+        String[] genericTitles = {
+            "boleto pago com sucesso", "pagamento realizado", 
+            "pix enviado", "pix recebido", "transferência realizada",
+            "você recebeu um pix", "pagamento de fatura"
+        };
+        
+        boolean isTitleGeneric = false;
+        String lowerTitle = title != null ? title.toLowerCase() : "";
+        for (String generic : genericTitles) {
+            if (lowerTitle.contains(generic)) {
+                isTitleGeneric = true;
+                break;
+            }
+        }
+        
+        // Se título é genérico e temos texto, tenta extrair algo útil do texto
+        if (isTitleGeneric && searchText.length() > 10) {
+            // Pega até os primeiros 80 caracteres do texto que não sejam o valor
+            String cleanedText = searchText.replaceAll("r\\$\\s*[0-9.,]+", "").trim();
+            if (cleanedText.length() > 10) {
+                // Limita e capitaliza
+                String desc = cleanedText.length() > 80 ? cleanedText.substring(0, 80) : cleanedText;
+                return capitalizeWords(desc);
+            }
+        }
+        
+        // Fallback: usa o título original
+        return title != null && !title.isEmpty() ? title : (text != null ? text : "Transação");
     }
     
     private String extractMerchantName(String fullText, String title, String text) {

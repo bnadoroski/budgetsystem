@@ -67,7 +67,7 @@
                 <Transition name="modal">
                     <div v-if="editingExpense" class="modal-overlay edit-overlay" @click="cancelEdit">
                         <div class="edit-modal" @click.stop>
-                            <h3>✏️ Escolher Budget</h3>
+                            <h3>✏️ Editar Despesa</h3>
 
                             <!-- Informações da despesa -->
                             <div class="expense-info">
@@ -75,10 +75,18 @@
                                     <span class="info-label">Valor:</span>
                                     <span class="info-value">{{ formatCurrency(editingExpense.amount) }}</span>
                                 </div>
-                                <div class="info-row">
-                                    <span class="info-label">Descrição:</span>
-                                    <span class="info-value">{{ editingExpense.description }}</span>
-                                </div>
+                            </div>
+
+                            <!-- Campo de descrição editável -->
+                            <div class="form-group">
+                                <label class="section-title" for="editDescription">📝 Descrição</label>
+                                <input 
+                                    id="editDescription" 
+                                    v-model="editingDescription" 
+                                    type="text" 
+                                    class="description-input"
+                                    placeholder="Ex: Pagamento para empresa XYZ"
+                                />
                             </div>
 
                             <!-- Checkbox de Parcelamento -->
@@ -108,6 +116,7 @@
                             </div>
 
                             <!-- Lista de budgets -->
+                            <label class="section-title">🏦 Escolher Budget</label>
                             <div class="budget-list">
                                 <button v-for="budget in budgetStore.budgets" :key="budget.id" class="budget-option"
                                     @click="selectBudget(budget.name)">
@@ -170,6 +179,7 @@ const emit = defineEmits<{
 
 const budgetStore = useBudgetStore()
 const editingExpense = ref<PendingExpense | null>(null)
+const editingDescription = ref<string>('')
 const editingHasInstallments = ref(false)
 const editingInstallmentNumber = ref<number | undefined>(undefined)
 const editingInstallmentTotal = ref<number | undefined>(undefined)
@@ -190,28 +200,39 @@ const getSuggestedBudget = async (expense: PendingExpense) => {
         return suggestedBudgets.value[expense.id]
     }
 
-    // Primeiro tenta por merchant usando o store
-    if (expense.merchantName && expense.merchantName !== 'Desconhecido') {
-        const suggestion = await budgetStore.getMerchantSuggestion(expense.merchantName)
-        if (suggestion && suggestion.confidence === 'high' && suggestion.budgetName) {
-            const result = suggestion.budgetName + ' 🎯'
-            suggestedBudgets.value[expense.id] = result
-            return result
+    try {
+        // Primeiro tenta por merchant usando o store
+        if (expense.merchantName && expense.merchantName !== 'Desconhecido') {
+            const suggestion = await budgetStore.getMerchantSuggestion(expense.merchantName)
+            if (suggestion && suggestion.confidence === 'high' && suggestion.budgetName) {
+                const result = suggestion.budgetName + ' 🎯'
+                suggestedBudgets.value[expense.id] = result
+                return result
+            }
+            if (suggestion && suggestion.confidence === 'medium' && suggestion.budgetName) {
+                const result = suggestion.budgetName + ' 💡'
+                suggestedBudgets.value[expense.id] = result
+                return result
+            }
         }
-        if (suggestion && suggestion.confidence === 'medium' && suggestion.budgetName) {
-            const result = suggestion.budgetName + ' 💡'
-            suggestedBudgets.value[expense.id] = result
-            return result
-        }
-    }
 
-    // Senão, procura budget com nome igual à categoria
-    const suggested = budgetStore.budgets.find(b =>
-        b.name.toLowerCase() === expense.category.toLowerCase()
-    )
-    const result = suggested?.name || `Criar "${expense.category}"`
-    suggestedBudgets.value[expense.id] = result
-    return result
+        // Senão, procura budget com nome igual à categoria
+        const suggested = budgetStore.budgets.find(b =>
+            b.name.toLowerCase() === expense.category.toLowerCase()
+        )
+        const result = suggested?.name || `Criar "${expense.category}"`
+        suggestedBudgets.value[expense.id] = result
+        return result
+    } catch (error) {
+        console.error('Erro ao buscar sugestão:', error)
+        // Em caso de erro, usa fallback baseado na categoria
+        const suggested = budgetStore.budgets.find(b =>
+            b.name.toLowerCase() === expense.category.toLowerCase()
+        )
+        const result = suggested?.name || `Criar "${expense.category}"`
+        suggestedBudgets.value[expense.id] = result
+        return result
+    }
 }
 
 // Carrega sugestões quando abre modal
@@ -222,6 +243,24 @@ watch(() => props.show, async (newShow) => {
         }
     }
 })
+
+// Carrega sugestões quando novas despesas chegam (modal já aberto)
+watch(pendingExpenses, async (newExpenses, oldExpenses) => {
+    if (!props.show) return
+    // Carrega sugestões apenas para despesas novas
+    for (const expense of newExpenses) {
+        if (!suggestedBudgets.value[expense.id]) {
+            await getSuggestedBudget(expense)
+        }
+    }
+    // Limpa sugestões de despesas removidas
+    const newIds = new Set(newExpenses.map(e => e.id))
+    for (const id of Object.keys(suggestedBudgets.value)) {
+        if (!newIds.has(id)) {
+            delete suggestedBudgets.value[id]
+        }
+    }
+}, { deep: true })
 
 // Limpa campos de parcelamento quando checkbox é desmarcado
 watch(editingHasInstallments, (newVal) => {
@@ -329,6 +368,8 @@ const approveExpense = async (expense: PendingExpense) => {
 
 const editExpense = (expense: PendingExpense) => {
     editingExpense.value = expense
+    // Inicializa campo de descrição
+    editingDescription.value = expense.description || ''
     // Inicializa campos de parcelamento com valores da despesa
     editingHasInstallments.value = !!(expense.installmentNumber && expense.installmentTotal)
     // Se já tem parcelas detectadas, usa os valores, senão preenche com 1/1 como padrão
@@ -341,21 +382,24 @@ const selectBudget = async (budgetName: string) => {
 
     const budget = budgetStore.budgets.find(b => b.name === budgetName)
     if (budget) {
-        // Atualiza a despesa com informações de parcelamento antes de aprovar
+        // Atualiza a despesa com informações de parcelamento e descrição antes de aprovar
         const updatedExpense = {
             ...editingExpense.value,
+            description: editingDescription.value || editingExpense.value.description,
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         }
 
         // Atualiza a despesa no store
         budgetStore.updatePendingExpense(updatedExpense.id, {
+            description: editingDescription.value || editingExpense.value.description,
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         })
 
         await budgetStore.approvePendingExpenseWithTransaction(updatedExpense.id, budget.id)
         editingExpense.value = null
+        editingDescription.value = ''
         editingInstallmentNumber.value = undefined
         editingInstallmentTotal.value = undefined
     }
@@ -365,20 +409,23 @@ const createNewBudget = () => {
     // Emite evento para que o App.vue abra a modal de criar budget
     // e mantenha a referência da despesa pendente
     if (editingExpense.value) {
-        // Atualiza a despesa com informações de parcelamento antes de criar novo budget
+        // Atualiza a despesa com informações de parcelamento e descrição antes de criar novo budget
         const updatedExpense = {
             ...editingExpense.value,
+            description: editingDescription.value || editingExpense.value.description,
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         }
 
         budgetStore.updatePendingExpense(updatedExpense.id, {
+            description: editingDescription.value || editingExpense.value.description,
             installmentNumber: editingInstallmentNumber.value,
             installmentTotal: editingInstallmentTotal.value
         })
 
         emit('openAddBudget', updatedExpense)
         editingExpense.value = null
+        editingDescription.value = ''
         editingInstallmentNumber.value = undefined
         editingInstallmentTotal.value = undefined
     }
@@ -404,6 +451,7 @@ const cancelReject = () => {
 
 const cancelEdit = () => {
     editingExpense.value = null
+    editingDescription.value = ''
     editingInstallmentNumber.value = undefined
     editingInstallmentTotal.value = undefined
 }
@@ -678,6 +726,31 @@ h2 {
 .info-value {
     color: #333;
     font-size: 13px;
+}
+
+/* Campo de descrição editável */
+.form-group {
+    margin-bottom: 16px;
+}
+
+.description-input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #E0E0E0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #333;
+    background: white;
+    box-sizing: border-box;
+}
+
+.description-input:focus {
+    outline: none;
+    border-color: #4CAF50;
+}
+
+.description-input::placeholder {
+    color: #999;
 }
 
 /* Estilos para checkbox de parcelamento */

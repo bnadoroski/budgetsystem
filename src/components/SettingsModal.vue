@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useAuthStore } from '@/stores/auth'
 import type { Budget } from '@/types/budget'
 import { Money3Directive } from 'v-money3'
 import QuickAmountButtons from './QuickAmountButtons.vue'
@@ -31,11 +32,71 @@ const savedLimitFeedback = ref(false)
 const showDeleteConfirm = ref(false)
 const budgetToDelete = ref<string | null>(null)
 
+// Valor do parceiro carregado do Firebase
+const partnerBudgetLimitLoaded = ref(0)
+
+// Valor do parceiro (de convites aceitos)
+// Precisamos buscar o valor correto dependendo se somos remetente ou destinatário
+const partnerBudgetLimit = computed(() => {
+    const authStore = useAuthStore()
+    const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
+    
+    if (!acceptedInvite) return 0
+    
+    // Se EU sou o REMETENTE (fromUserId), o totalBudgetLimit do convite é MEU valor
+    // Então preciso buscar o valor do parceiro (destinatário) em outro lugar
+    if (acceptedInvite.fromUserId === authStore.userId) {
+        // Sou o remetente - o valor no convite é meu, preciso do valor do destinatário
+        // Usa partnerTotalBudgetLimit se existir, senão usa o valor carregado do Firebase
+        return acceptedInvite.partnerTotalBudgetLimit || partnerBudgetLimitLoaded.value
+    } else {
+        // Sou o DESTINATÁRIO - o totalBudgetLimit do convite é do REMETENTE (meu parceiro)
+        return acceptedInvite.totalBudgetLimit || 0
+    }
+})
+
+// Carrega o valor do parceiro quando necessário
+const loadPartnerBudgetLimit = async () => {
+    const authStore = useAuthStore()
+    const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
+    
+    if (!acceptedInvite) return
+    
+    // Se sou o remetente e não tem partnerTotalBudgetLimit, busca do Firebase
+    if (acceptedInvite.fromUserId === authStore.userId && !acceptedInvite.partnerTotalBudgetLimit) {
+        const partnerId = acceptedInvite.toUserId
+        if (partnerId) {
+            partnerBudgetLimitLoaded.value = await budgetStore.getPartnerBudgetLimit(partnerId)
+            console.log('📊 Valor do parceiro carregado:', partnerBudgetLimitLoaded.value)
+        }
+    }
+}
+
+// Nome/email do parceiro
+const partnerInfo = computed(() => {
+    const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
+    if (!acceptedInvite) return null
+    
+    // Verifica se sou o remetente ou destinatário para pegar o email correto
+    const authStore = useAuthStore()
+    if (acceptedInvite.fromUserId === authStore.userId) {
+        return acceptedInvite.toUserEmail
+    }
+    return acceptedInvite.fromUserEmail
+})
+
+// Total combinado (meu + parceiro)
+const combinedBudgetLimit = computed(() => {
+    return totalBudgetLimitNumeric.value + partnerBudgetLimit.value
+})
+
 // Atualizar valores quando modal abrir
-watch(() => props.show, (isShowing) => {
+watch(() => props.show, async (isShowing) => {
     if (isShowing) {
         totalBudgetLimit.value = (budgetStore.totalBudgetLimit || 0).toFixed(2).replace('.', ',')
         resetDay.value = budgetStore.resetDay || 5
+        // Carrega valor do parceiro se necessário
+        await loadPartnerBudgetLimit()
     }
 })
 
@@ -139,11 +200,15 @@ const totalBudgetLimitNumeric = computed(() => {
 })
 
 const isOverLimit = computed(() => {
-    return totalBudgetLimitNumeric.value > 0 && totalAllocated.value > totalBudgetLimitNumeric.value
+    // Usa o valor combinado se tiver parceiro, senão só o meu valor
+    const totalLimit = combinedBudgetLimit.value > 0 ? combinedBudgetLimit.value : totalBudgetLimitNumeric.value
+    return totalLimit > 0 && totalAllocated.value > totalLimit
 })
 
 const remainingBudget = computed(() => {
-    return totalBudgetLimitNumeric.value > 0 ? totalBudgetLimitNumeric.value - totalAllocated.value : 0
+    // Usa o valor combinado se tiver parceiro, senão só o meu valor
+    const totalLimit = combinedBudgetLimit.value > 0 ? combinedBudgetLimit.value : totalBudgetLimitNumeric.value
+    return totalLimit > 0 ? totalLimit - totalAllocated.value : 0
 })
 
 const handleSaveLimit = async () => {
@@ -293,11 +358,20 @@ onMounted(() => {
                                 </Transition>
                             </div>
 
-                            <div v-if="totalBudgetLimitNumeric > 0" class="budget-summary">
+                            <div v-if="totalBudgetLimitNumeric > 0 || partnerBudgetLimit > 0" class="budget-summary">
                                 <div class="summary-row">
-                                    <span>Total Disponível:</span>
+                                    <span>Meu Valor:</span>
                                     <strong>{{ formatCurrency(totalBudgetLimitNumeric) }}</strong>
                                 </div>
+                                <div v-if="partnerBudgetLimit > 0" class="summary-row partner-row">
+                                    <span>💑 Valor do Parceiro(a):</span>
+                                    <strong class="partner-value">{{ formatCurrency(partnerBudgetLimit) }}</strong>
+                                </div>
+                                <div v-if="partnerBudgetLimit > 0" class="summary-row total-combined">
+                                    <span>📊 Total Combinado:</span>
+                                    <strong class="text-primary">{{ formatCurrency(combinedBudgetLimit) }}</strong>
+                                </div>
+                                <div class="divider-row"></div>
                                 <div class="summary-row">
                                     <span>Total Alocado:</span>
                                     <strong :class="{ 'text-danger': isOverLimit }">
@@ -660,6 +734,35 @@ onMounted(() => {
 
 .summary-row strong {
     color: #fff;
+}
+
+.partner-row {
+    background: rgba(102, 126, 234, 0.15);
+    margin: 4px -8px;
+    padding: 8px;
+    border-radius: 8px;
+}
+
+.partner-value {
+    color: #a78bfa !important;
+}
+
+.total-combined {
+    background: rgba(79, 209, 197, 0.15);
+    margin: 4px -8px;
+    padding: 8px;
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+.text-primary {
+    color: #4fd1c5 !important;
+}
+
+.divider-row {
+    height: 1px;
+    background: #4a5568;
+    margin: 8px 0;
 }
 
 .text-danger {

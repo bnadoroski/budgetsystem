@@ -38,7 +38,8 @@ export interface ShareInvite {
     toUserEmail: string
     toUserId?: string
     budgetIds: string[]
-    totalBudgetLimit?: number
+    totalBudgetLimit?: number // Limite do remetente (fromUser)
+    partnerTotalBudgetLimit?: number // Limite do destinatário (toUser) - atualizado quando aceita ou muda
     status: 'pending' | 'accepted' | 'rejected'
     createdAt: Date
     respondedAt?: Date

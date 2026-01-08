@@ -74,17 +74,17 @@ export const useBudgetStore = defineStore('budget', () => {
                 id: doc.id,
                 ...doc.data()
             } as Budget))
-            
+
             // Preserva budgets compartilhados (onde ownerId é diferente do userId)
             const sharedBudgets = budgets.value.filter(b => b.ownerId && b.ownerId !== userId)
-            
+
             // Combina: budgets do usuário + budgets compartilhados (sem duplicatas)
             const sharedIds = new Set(sharedBudgets.map(b => b.id))
             budgets.value = [
                 ...userBudgets.filter(b => !sharedIds.has(b.id)),
                 ...sharedBudgets
             ]
-            
+
             // Salva no cache após receber do Firebase
             saveToLocalStorage()
         }, (error) => {
@@ -379,6 +379,21 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
+    // Busca o totalBudgetLimit de outro usuário (parceiro)
+    const getPartnerBudgetLimit = async (partnerId: string): Promise<number> => {
+        try {
+            const settingsDoc = await getDocs(query(collection(db, 'users', partnerId, 'settings')))
+            if (!settingsDoc.empty && settingsDoc.docs[0]) {
+                const settingsData = settingsDoc.docs[0].data()
+                return settingsData.totalBudgetLimit || 0
+            }
+            return 0
+        } catch (error) {
+            console.error('Erro ao buscar limite do parceiro:', error)
+            return 0
+        }
+    }
+
     // Salva configurações do usuário no Firestore
     const saveUserSettings = async (userId: string) => {
         try {
@@ -404,6 +419,46 @@ export const useBudgetStore = defineStore('budget', () => {
         // Salva no Firestore se estiver autenticado
         if (authStore.userId) {
             await saveUserSettings(authStore.userId)
+
+            // Atualiza o totalBudgetLimit em convites aceitos onde sou o REMETENTE
+            try {
+                const invitesRef = collection(db, 'shareInvites')
+                const myInvitesQuery = query(
+                    invitesRef,
+                    where('fromUserId', '==', authStore.userId),
+                    where('status', '==', 'accepted')
+                )
+                const invitesSnapshot = await getDocs(myInvitesQuery)
+
+                for (const inviteDoc of invitesSnapshot.docs) {
+                    await updateDoc(doc(db, 'shareInvites', inviteDoc.id), {
+                        totalBudgetLimit: limit
+                    })
+                }
+                console.log('📊 totalBudgetLimit atualizado nos convites (como remetente)')
+            } catch (error) {
+                console.error('Erro ao atualizar totalBudgetLimit nos convites:', error)
+            }
+
+            // Atualiza o partnerTotalBudgetLimit em convites aceitos onde sou o DESTINATÁRIO
+            try {
+                const invitesRef = collection(db, 'shareInvites')
+                const partnerInvitesQuery = query(
+                    invitesRef,
+                    where('toUserId', '==', authStore.userId),
+                    where('status', '==', 'accepted')
+                )
+                const partnerInvitesSnapshot = await getDocs(partnerInvitesQuery)
+
+                for (const inviteDoc of partnerInvitesSnapshot.docs) {
+                    await updateDoc(doc(db, 'shareInvites', inviteDoc.id), {
+                        partnerTotalBudgetLimit: limit
+                    })
+                }
+                console.log('📊 partnerTotalBudgetLimit atualizado nos convites (como destinatário)')
+            } catch (error) {
+                console.error('Erro ao atualizar partnerTotalBudgetLimit nos convites:', error)
+            }
         }
     }
 
@@ -889,11 +944,14 @@ export const useBudgetStore = defineStore('budget', () => {
     loadPendingExpenses()
 
     // Limpa todos os dados locais (para quando não há autenticação)
+    // IMPORTANTE: NÃO limpa pendingExpenses pois elas vêm do NotificationListener
+    // e podem ter sido capturadas antes do login
     const clearLocalData = () => {
         budgets.value = []
         groups.value = []
         history.value = []
-        pendingExpenses.value = []
+        // pendingExpenses NÃO é limpa aqui propositalmente
+        // Elas serão processadas quando o usuário logar novamente
     }
 
     // === SISTEMA DE CONVITES ===
@@ -1135,10 +1193,12 @@ export const useBudgetStore = defineStore('budget', () => {
                 }
             }
 
-            // Atualizar status do convite
+            // Atualizar status do convite e salvar o totalBudgetLimit do destinatário
             await updateDoc(doc(db, 'shareInvites', inviteId), {
                 status: 'accepted',
-                respondedAt: serverTimestamp()
+                respondedAt: serverTimestamp(),
+                toUserId: authStore.userId,
+                partnerTotalBudgetLimit: totalBudgetLimit.value // Salva o limite atual do destinatário
             })
 
             // Envia notificação ao remetente via Cloud Function
@@ -2175,6 +2235,7 @@ export const useBudgetStore = defineStore('budget', () => {
         setTotalBudgetLimit,
         loadUserSettings,
         saveUserSettings,
+        getPartnerBudgetLimit,
         clearLocalData,
         // Groups
         loadGroups,

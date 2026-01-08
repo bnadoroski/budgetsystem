@@ -27,6 +27,12 @@ export interface NotificationPluginPlugin {
         eventName: 'bankExpense',
         listenerFunc: (expense: BankExpenseEvent) => void
     ): Promise<void>
+
+    // Listener para verificação de email
+    addListener(
+        eventName: 'emailVerification',
+        listenerFunc: (data: EmailVerificationEvent) => void
+    ): Promise<void>
 }
 
 export interface BankExpenseEvent {
@@ -38,6 +44,11 @@ export interface BankExpenseEvent {
     merchantName?: string
     installmentNumber?: number
     installmentTotal?: number
+}
+
+export interface EmailVerificationEvent {
+    title: string
+    text: string
 }
 
 const NotificationPlugin = registerPlugin<NotificationPluginPlugin>('NotificationPlugin')

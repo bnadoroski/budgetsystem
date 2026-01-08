@@ -7,7 +7,12 @@ import {
     onAuthStateChanged,
     type User,
     GoogleAuthProvider,
-    signInWithCredential
+    signInWithCredential,
+    sendEmailVerification,
+    sendPasswordResetEmail,
+    fetchSignInMethodsForEmail,
+    linkWithCredential,
+    EmailAuthProvider
 } from 'firebase/auth'
 import { auth, db } from '@/config/firebase'
 import { doc, setDoc, getDoc } from 'firebase/firestore'
@@ -19,10 +24,12 @@ export const useAuthStore = defineStore('auth', () => {
     const user = ref<User | null>(null)
     const loading = ref(true)
     const error = ref<string | null>(null)
+    const pendingVerificationEmail = ref<string | null>(null)
 
     const isAuthenticated = computed(() => !!user.value)
     const userId = computed(() => user.value?.uid || null)
     const userEmail = computed(() => user.value?.email || null)
+    const isEmailVerified = computed(() => user.value?.emailVerified ?? false)
 
     // Monitora mudanças no estado de autenticação
     onAuthStateChanged(auth, async (firebaseUser) => {
@@ -90,9 +97,93 @@ export const useAuthStore = defineStore('auth', () => {
     const signUp = async (email: string, password: string) => {
         try {
             error.value = null
+
+            // Verifica se já existe conta com esse email (pode ser Google)
+            const methods = await fetchSignInMethodsForEmail(auth, email)
+
+            if (methods.length > 0 && !methods.includes('password')) {
+                // Conta existe mas é só com Google - informar usuário
+                error.value = 'Este email já está cadastrado com Google. Faça login com Google e depois vincule a senha nas configurações.'
+                return { success: false, error: error.value, existingProvider: 'google' }
+            }
+
             const userCredential = await createUserWithEmailAndPassword(auth, email, password)
             user.value = userCredential.user
+
+            // Enviar email de verificação
+            await sendEmailVerification(userCredential.user, {
+                url: window.location.origin,
+                handleCodeInApp: false
+            })
+            pendingVerificationEmail.value = email
+
             await ensureUserDocument(userCredential.user)
+            return { success: true, needsVerification: true }
+        } catch (err: any) {
+            error.value = getErrorMessage(err.code)
+            return { success: false, error: error.value }
+        }
+    }
+
+    // Reenviar email de verificação
+    const resendVerificationEmail = async () => {
+        try {
+            error.value = null
+            if (!user.value) {
+                error.value = 'Nenhum usuário logado'
+                return { success: false, error: error.value }
+            }
+
+            await sendEmailVerification(user.value, {
+                url: window.location.origin,
+                handleCodeInApp: false
+            })
+            return { success: true }
+        } catch (err: any) {
+            error.value = getErrorMessage(err.code)
+            return { success: false, error: error.value }
+        }
+    }
+
+    // Verificar se email foi verificado (recarrega usuário)
+    const checkEmailVerification = async () => {
+        try {
+            if (!user.value) return { verified: false }
+            await user.value.reload()
+            user.value = auth.currentUser
+            return { verified: user.value?.emailVerified ?? false }
+        } catch (err) {
+            console.error('Erro ao verificar email:', err)
+            return { verified: false }
+        }
+    }
+
+    // Esqueci minha senha
+    const resetPassword = async (email: string) => {
+        try {
+            error.value = null
+            await sendPasswordResetEmail(auth, email, {
+                url: window.location.origin,
+                handleCodeInApp: false
+            })
+            return { success: true }
+        } catch (err: any) {
+            error.value = getErrorMessage(err.code)
+            return { success: false, error: error.value }
+        }
+    }
+
+    // Vincular conta de email/senha a conta Google existente
+    const linkEmailPassword = async (email: string, password: string) => {
+        try {
+            error.value = null
+            if (!user.value) {
+                error.value = 'Nenhum usuário logado'
+                return { success: false, error: error.value }
+            }
+
+            const credential = EmailAuthProvider.credential(email, password)
+            await linkWithCredential(user.value, credential)
             return { success: true }
         } catch (err: any) {
             error.value = getErrorMessage(err.code)
@@ -205,6 +296,10 @@ export const useAuthStore = defineStore('auth', () => {
             'auth/wrong-password': 'Senha incorreta',
             'auth/invalid-credential': 'Credenciais inválidas',
             'auth/popup-closed-by-user': 'Login cancelado',
+            'auth/too-many-requests': 'Muitas tentativas. Aguarde alguns minutos.',
+            'auth/credential-already-in-use': 'Esta credencial já está vinculada a outra conta',
+            'auth/provider-already-linked': 'Este provedor já está vinculado à sua conta',
+            'auth/requires-recent-login': 'Por segurança, faça login novamente',
         }
         return errorMessages[code] || 'Erro ao autenticar. Tente novamente.'
     }
@@ -213,12 +308,18 @@ export const useAuthStore = defineStore('auth', () => {
         user,
         loading,
         error,
+        pendingVerificationEmail,
         isAuthenticated,
         userId,
         userEmail,
+        isEmailVerified,
         signIn,
         signUp,
         signInWithGoogle,
-        signOut
+        signOut,
+        resetPassword,
+        resendVerificationEmail,
+        checkEmailVerification,
+        linkEmailPassword
     }
 })
