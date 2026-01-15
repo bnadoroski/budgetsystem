@@ -57,8 +57,8 @@ export interface Merchant {
 
 export interface MerchantBudgetMapping {
     id: string
-    merchantId: string
     merchantName: string
+    normalizedMerchant: string  // Nome normalizado para busca (lowercase, sem acentos)
     budgetId: string
     budgetName: string
     userId: string

@@ -6,8 +6,11 @@ import type { Budget } from '@/types/budget'
 import { Money3Directive } from 'v-money3'
 import QuickAmountButtons from './QuickAmountButtons.vue'
 import NotificationPlugin from '@/plugins/NotificationPlugin'
+import { checkPushPermission, requestPushPermission } from '@/plugins/FCMPlugin'
 import { Capacitor } from '@capacitor/core'
 import ConfirmModal from './ConfirmModal.vue'
+import { doc, setDoc } from 'firebase/firestore'
+import { db } from '@/config/firebase'
 
 const vMoney3 = Money3Directive
 
@@ -40,9 +43,9 @@ const partnerBudgetLimitLoaded = ref(0)
 const partnerBudgetLimit = computed(() => {
     const authStore = useAuthStore()
     const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
-    
+
     if (!acceptedInvite) return 0
-    
+
     // Se EU sou o REMETENTE (fromUserId), o totalBudgetLimit do convite é MEU valor
     // Então preciso buscar o valor do parceiro (destinatário) em outro lugar
     if (acceptedInvite.fromUserId === authStore.userId) {
@@ -59,9 +62,9 @@ const partnerBudgetLimit = computed(() => {
 const loadPartnerBudgetLimit = async () => {
     const authStore = useAuthStore()
     const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
-    
+
     if (!acceptedInvite) return
-    
+
     // Se sou o remetente e não tem partnerTotalBudgetLimit, busca do Firebase
     if (acceptedInvite.fromUserId === authStore.userId && !acceptedInvite.partnerTotalBudgetLimit) {
         const partnerId = acceptedInvite.toUserId
@@ -76,7 +79,7 @@ const loadPartnerBudgetLimit = async () => {
 const partnerInfo = computed(() => {
     const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
     if (!acceptedInvite) return null
-    
+
     // Verifica se sou o remetente ou destinatário para pegar o email correto
     const authStore = useAuthStore()
     if (acceptedInvite.fromUserId === authStore.userId) {
@@ -295,8 +298,66 @@ watch(currency, (newValue) => {
     budgetStore.currency = newValue
 })
 
-watch(notificationsEnabled, (newValue) => {
-    localStorage.setItem('notificationsEnabled', newValue.toString())
+// Função auxiliar para salvar preferência de notificações no Firestore
+const saveNotificationPreferenceToFirestore = async (enabled: boolean) => {
+    const authStore = useAuthStore()
+    if (!authStore.userId) return
+
+    try {
+        const userDocRef = doc(db, 'users', authStore.userId)
+        await setDoc(userDocRef, {
+            notificationsEnabled: enabled,
+            notificationsUpdatedAt: new Date().toISOString()
+        }, { merge: true })
+        console.log('✅ Preferência de notificações salva no Firestore:', enabled)
+    } catch (error) {
+        console.error('❌ Erro ao salvar preferência no Firestore:', error)
+    }
+}
+
+watch(notificationsEnabled, async (newValue, oldValue) => {
+    // Ignorar mudanças durante a inicialização
+    if (oldValue === undefined) return
+
+    if (newValue) {
+        // Usuário quer habilitar notificações - solicitar permissão
+        try {
+            const result = await requestPushPermission()
+            if (result.granted) {
+                localStorage.setItem('notificationsEnabled', 'true')
+                localStorage.setItem('pushPermissionDenied', 'false')
+                // Salva no Firestore também
+                await saveNotificationPreferenceToFirestore(true)
+                console.log('Permissão de notificação concedida')
+            } else {
+                // Permissão negada - reverter toggle e salvar flag
+                notificationsEnabled.value = false
+                localStorage.setItem('notificationsEnabled', 'false')
+                localStorage.setItem('pushPermissionDenied', 'true')
+                await saveNotificationPreferenceToFirestore(false)
+                console.log('Permissão de notificação negada pelo usuário')
+            }
+        } catch (error) {
+            console.error('Erro ao solicitar permissão:', error)
+            notificationsEnabled.value = false
+            localStorage.setItem('notificationsEnabled', 'false')
+            await saveNotificationPreferenceToFirestore(false)
+        }
+    } else {
+        // Usuário quer desativar notificações
+        localStorage.setItem('notificationsEnabled', 'false')
+        // Salva no Firestore também
+        await saveNotificationPreferenceToFirestore(false)
+
+        // Abre as configurações de notificação do sistema para o usuário desativar
+        if (isNativePlatform) {
+            try {
+                await NotificationPlugin.openNotificationSettings()
+            } catch (e) {
+                console.error('Erro ao abrir configurações de notificação:', e)
+            }
+        }
+    }
 })
 
 watch(darkModeEnabled, (newValue) => {
@@ -371,7 +432,7 @@ onMounted(() => {
                                     <span>📊 Total Combinado:</span>
                                     <strong class="text-primary">{{ formatCurrency(combinedBudgetLimit) }}</strong>
                                 </div>
-                                <div class="divider-row"></div>
+                                <div v-if="partnerBudgetLimit > 0" class="divider-row"></div>
                                 <div class="summary-row">
                                     <span>Total Alocado:</span>
                                     <strong :class="{ 'text-danger': isOverLimit }">
@@ -523,18 +584,23 @@ onMounted(() => {
                                 Para capturar notificações com o app fechado, desative a economia de bateria
                             </p>
 
-                            <div class="battery-status" :class="{ 'status-ok': batteryOptimizationIgnored, 'status-warning': !batteryOptimizationIgnored }">
+                            <div class="battery-status"
+                                :class="{ 'status-ok': batteryOptimizationIgnored, 'status-warning': !batteryOptimizationIgnored }">
                                 <div class="status-icon">
                                     {{ batteryOptimizationIgnored ? '✅' : '⚠️' }}
                                 </div>
                                 <div class="status-text">
-                                    <strong>{{ batteryOptimizationIgnored ? 'Economia desativada' : 'Economia de bateria ativa' }}</strong>
-                                    <span>{{ batteryOptimizationIgnored ? 'O app pode capturar notificações em background' : 'O sistema pode impedir o app de funcionar em background' }}</span>
+                                    <strong>{{ batteryOptimizationIgnored ? 'Economia desativada' : 'Economia de bateria
+                                        ativa' }}</strong>
+                                    <span>{{ batteryOptimizationIgnored ? 'O app pode capturar notificações em
+                                        background' : 'O sistema pode impedir o app de funcionar em background'
+                                        }}</span>
                                 </div>
                             </div>
 
                             <div class="battery-actions">
-                                <button v-if="!batteryOptimizationIgnored" class="btn-battery-request" @click="requestIgnoreBattery">
+                                <button v-if="!batteryOptimizationIgnored" class="btn-battery-request"
+                                    @click="requestIgnoreBattery">
                                     🔓 Desativar Economia
                                 </button>
                                 <button class="btn-battery-settings" @click="openBatterySettings">
@@ -543,8 +609,10 @@ onMounted(() => {
                             </div>
 
                             <div class="battery-instructions">
-                                <p><strong>📱 Samsung:</strong> Vá em Bateria → Uso em segundo plano → Escolha "Irrestrito"</p>
-                                <p><strong>📱 Xiaomi:</strong> Desative "Restrição de segundo plano" e "Economia de energia"</p>
+                                <p><strong>📱 Samsung:</strong> Vá em Bateria → Uso em segundo plano → Escolha
+                                    "Irrestrito"</p>
+                                <p><strong>📱 Xiaomi:</strong> Desative "Restrição de segundo plano" e "Economia de
+                                    energia"</p>
                             </div>
                         </section>
                     </div>
@@ -553,16 +621,10 @@ onMounted(() => {
         </Transition>
 
         <!-- Modal de confirmação para excluir budget -->
-        <ConfirmModal
-            :show="showDeleteConfirm"
-            title="Excluir Budget"
+        <ConfirmModal :show="showDeleteConfirm" title="Excluir Budget"
             message="Tem certeza que deseja <strong>excluir</strong> este budget? Esta ação não pode ser desfeita."
-            type="danger"
-            confirm-text="Excluir"
-            confirm-icon="🗑️"
-            @confirm="confirmDeleteBudget"
-            @cancel="cancelDeleteBudget"
-        />
+            type="danger" confirm-text="Excluir" confirm-icon="🗑️" @confirm="confirmDeleteBudget"
+            @cancel="cancelDeleteBudget" />
     </Teleport>
 </template>
 

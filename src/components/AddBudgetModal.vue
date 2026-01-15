@@ -46,6 +46,16 @@
                                     @click="budgetColor = color"></div>
                             </div>
                         </div>
+                        
+                        <!-- Checkbox de compartilhar (só aparece se tem compartilhamento ativo) -->
+                        <div v-if="hasActiveSharing" class="form-group checkbox-group">
+                            <label class="checkbox-label share-checkbox">
+                                <input type="checkbox" v-model="shareWithPartner" />
+                                <span>💑 Compartilhar com {{ partnerEmail }}</span>
+                            </label>
+                            <p class="checkbox-hint">O budget será visível para seu parceiro(a)</p>
+                        </div>
+                        
                         <div class="form-actions">
                             <button type="button" class="btn-cancel" @click="close">Cancelar</button>
                             <button type="submit" class="btn-submit">{{ props.editBudgetId ? 'Salvar' : 'Adicionar'
@@ -130,6 +140,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useAuthStore } from '@/stores/auth'
 import { Money3Directive } from 'v-money3'
 import QuickAmountButtons from './QuickAmountButtons.vue'
 import ToastNotification from './ToastNotification.vue'
@@ -148,15 +159,17 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     close: []
-    submit: [name: string, value: number, color: string, groupId?: string]
+    submit: [name: string, value: number, color: string, groupId?: string, shareWithPartner?: boolean]
     update: [id: string, name: string, value: number, color: string, groupId?: string]
 }>()
 
 const budgetStore = useBudgetStore()
+const authStore = useAuthStore()
 const budgetName = ref('')
 const budgetValue = ref('0.00')
 const budgetColor = ref('#4CAF50')
 const selectedGroupId = ref<string>('')
+const shareWithPartner = ref(true) // Já vem marcado como sim por padrão
 const activeTab = ref<'budget' | 'expense'>('budget')
 const expenseValue = ref('0.00')
 const expenseType = ref<'expense' | 'income'>('expense')
@@ -166,6 +179,25 @@ const expenseInstallmentNumber = ref<number>(1)
 const expenseInstallmentTotal = ref<number>(12)
 const showErrorToast = ref(false)
 const errorMessage = ref('')
+
+// Verifica se tem compartilhamento ativo
+const hasActiveSharing = computed(() => {
+    return budgetStore.shareInvites.some(inv => 
+        inv.status === 'accepted' &&
+        (inv.fromUserId === authStore.userId || inv.toUserEmail?.toLowerCase() === authStore.userEmail?.toLowerCase())
+    )
+})
+
+// Email do parceiro para exibir no checkbox
+const partnerEmail = computed(() => {
+    const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
+    if (!acceptedInvite) return ''
+    
+    if (acceptedInvite.fromUserId === authStore.userId) {
+        return acceptedInvite.toUserEmail
+    }
+    return acceptedInvite.fromUserEmail
+})
 
 const moneyConfig = {
     decimal: ',',
@@ -285,6 +317,7 @@ watch(() => props.show, (newVal) => {
             budgetValue.value = '0.00'
             budgetColor.value = '#4CAF50'
             selectedGroupId.value = props.preselectedGroupId || ''
+            shareWithPartner.value = true // Reset para true (padrão)
         }
 
         expenseValue.value = '0.00'
@@ -338,7 +371,9 @@ const handleSubmit = () => {
                 return
             }
 
-            emit('submit', budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined)
+            // Passa shareWithPartner se tiver compartilhamento ativo
+            const shouldShare = hasActiveSharing.value ? shareWithPartner.value : false
+            emit('submit', budgetName.value, numericValue, budgetColor.value, selectedGroupId.value || undefined, shouldShare)
             close()
         }
     }
@@ -439,6 +474,8 @@ const handleExpenseSubmit = async () => {
     padding: 24px;
     width: 90%;
     max-width: 400px;
+    max-height: 85vh;
+    overflow-y: auto;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
 }
 
@@ -575,6 +612,24 @@ button {
 
 .checkbox-label span {
     cursor: pointer;
+}
+
+/* Checkbox de compartilhar com parceiro */
+.share-checkbox {
+    background: linear-gradient(135deg, #FCE4EC 0%, #F3E5F5 100%);
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid #F8BBD9;
+}
+
+.share-checkbox span {
+    color: #AD1457;
+}
+
+.checkbox-hint {
+    font-size: 12px;
+    color: #666;
+    margin: 6px 0 0 30px;
 }
 
 /* Estilos para seção de parcelamento */

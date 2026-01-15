@@ -497,6 +497,31 @@ public class NotificationListenerService extends android.service.notification.No
         String searchText = (bigText != null && !bigText.isEmpty()) ? bigText : text;
         if (searchText == null) searchText = "";
         
+        // NOVO: Padrão específico para nomes em CAIXA ALTA após "de", "para" ou "em"
+        // Ex: "de GUILHERME SANTANA C", "para MARIA SILVA", "em LOJA XYZ"
+        Pattern patternUpperCase = Pattern.compile("(?:de|para|em)\\s+([A-ZÀÁÂÃÉÊÍÓÔÕÚÇ][A-ZÀÁÂÃÉÊÍÓÔÕÚÇ\\s\\.]+?)(?:\\s*(?:\\.|,|cpf|no valor|r\\$|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherUpperCase = patternUpperCase.matcher(searchText);
+        if (matcherUpperCase.find()) {
+            String name = matcherUpperCase.group(1).trim();
+            // Verifica se realmente tem letras maiúsculas (nome em caixa alta)
+            if (name.length() >= 3 && name.length() <= 60 && hasUppercaseWords(name)) {
+                String preposition = searchText.substring(matcherUpperCase.start(), matcherUpperCase.start() + 2).toLowerCase();
+                if (preposition.startsWith("de")) {
+                    // Recebido DE alguém
+                    if (fullText.toLowerCase().contains("receb")) {
+                        return "Recebido de " + capitalizeWords(name);
+                    }
+                    return "De " + capitalizeWords(name);
+                } else if (preposition.startsWith("pa")) {
+                    // Enviado PARA alguém
+                    return "Para " + capitalizeWords(name);
+                } else {
+                    // Compra EM estabelecimento
+                    return "Em " + capitalizeWords(name);
+                }
+            }
+        }
+        
         // Padrão: "para NOME" (boletos, pagamentos)
         Pattern patternPara = Pattern.compile("para\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-]+?)(?:\\s+(?:foi|no valor|r\\$|\\.|$))", Pattern.CASE_INSENSITIVE);
         Matcher matcherPara = patternPara.matcher(searchText);
@@ -585,6 +610,26 @@ public class NotificationListenerService extends android.service.notification.No
             return capitalizeWords(merchant);
         }
         
+        // Padrão: "aprovada em NOME DO ESTABELECIMENTO"
+        Pattern patternAprovada = Pattern.compile("aprovada\\s+(?:em|no|na)\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-\\*]+?)(?:\\s*(?:\\.|,|r\\$|no valor|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherAprovada = patternAprovada.matcher(fullText);
+        if (matcherAprovada.find()) {
+            String merchant = matcherAprovada.group(1).trim();
+            if (merchant.length() >= 2 && merchant.length() <= 50) {
+                return capitalizeWords(merchant);
+            }
+        }
+        
+        // Padrão: "r$ VALOR em NOME DO ESTABELECIMENTO"
+        Pattern patternValorEm = Pattern.compile("r\\$\\s*[0-9.,]+\\s+(?:em|no|na)\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-\\*]+?)(?:\\s*(?:\\.|,|aprovada|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherValorEm = patternValorEm.matcher(fullText);
+        if (matcherValorEm.find()) {
+            String merchant = matcherValorEm.group(1).trim();
+            if (merchant.length() >= 2 && merchant.length() <= 50) {
+                return capitalizeWords(merchant);
+            }
+        }
+        
         // Padrão: "NOME - valor"
         Pattern pattern2 = Pattern.compile("^([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ\\s\\.]+)\\s*-\\s*r\\$", Pattern.CASE_INSENSITIVE);
         Matcher matcher2 = pattern2.matcher(text);
@@ -600,6 +645,16 @@ public class NotificationListenerService extends android.service.notification.No
             String merchant = matcher3.group(1).trim();
             if (merchant.length() > 50) merchant = merchant.substring(0, 50);
             return capitalizeWords(merchant);
+        }
+        
+        // Padrão: "débito em NOME" ou "crédito em NOME"
+        Pattern patternDebitoCredito = Pattern.compile("(?:débito|debito|crédito|credito)\\s+(?:em|no|na)\\s+([A-Za-zÀ-ÿ0-9\\s\\.\\-\\*]+?)(?:\\s*(?:\\.|,|r\\$|no valor|aprovad|$))", Pattern.CASE_INSENSITIVE);
+        Matcher matcherDebitoCredito = patternDebitoCredito.matcher(fullText);
+        if (matcherDebitoCredito.find()) {
+            String merchant = matcherDebitoCredito.group(1).trim();
+            if (merchant.length() >= 2 && merchant.length() <= 50) {
+                return capitalizeWords(merchant);
+            }
         }
         
         // Se não encontrou padrão, retorna "Desconhecido"
@@ -620,6 +675,24 @@ public class NotificationListenerService extends android.service.notification.No
             }
         }
         return result.toString().trim();
+    }
+    
+    /**
+     * Verifica se o texto contém palavras em CAIXA ALTA (típico de nomes em notificações bancárias)
+     */
+    private boolean hasUppercaseWords(String text) {
+        if (text == null || text.isEmpty()) return false;
+        
+        // Conta quantas letras maiúsculas vs minúsculas
+        int upperCount = 0;
+        int lowerCount = 0;
+        for (char c : text.toCharArray()) {
+            if (Character.isUpperCase(c)) upperCount++;
+            else if (Character.isLowerCase(c)) lowerCount++;
+        }
+        
+        // Se tem mais maiúsculas que minúsculas, provavelmente é nome em CAIXA ALTA
+        return upperCount > lowerCount && upperCount >= 3;
     }
     
     private InstallmentInfo extractInstallmentInfo(String text) {

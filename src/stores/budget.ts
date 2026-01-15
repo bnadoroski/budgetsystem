@@ -186,8 +186,23 @@ export const useBudgetStore = defineStore('budget', () => {
     }
 
     // Adiciona novo budget
-    const addBudget = async (name: string, totalValue: number, color?: string, groupId?: string) => {
+    const addBudget = async (name: string, totalValue: number, color?: string, groupId?: string, shareWithPartner?: boolean) => {
         const authStore = useAuthStore()
+
+        // Verifica se deve compartilhar com parceiro
+        let sharedWithIds: string[] = []
+        if (shareWithPartner && authStore.userId) {
+            // Busca o ID do parceiro no convite aceito
+            const acceptedInvite = shareInvites.value.find(inv => inv.status === 'accepted')
+            if (acceptedInvite) {
+                const partnerId = acceptedInvite.fromUserId === authStore.userId
+                    ? acceptedInvite.toUserId
+                    : acceptedInvite.fromUserId
+                if (partnerId) {
+                    sharedWithIds.push(partnerId)
+                }
+            }
+        }
 
         const newBudget: any = {
             name,
@@ -196,7 +211,7 @@ export const useBudgetStore = defineStore('budget', () => {
             color: color || colors[budgets.value.length % colors.length] || '#4CAF50',
             createdAt: new Date().toISOString(),
             ownerId: authStore.userId || 'local',
-            sharedWith: []
+            sharedWith: sharedWithIds
         }
 
         // Só adiciona groupId se tiver valor (Firestore não aceita undefined)
@@ -217,6 +232,21 @@ export const useBudgetStore = defineStore('budget', () => {
                     addDoc(budgetsRef, newBudget),
                     timeoutPromise
                 ]) as any
+
+                // Se compartilhado, também adiciona na coleção sharedBudgets
+                if (sharedWithIds.length > 0 && docRef?.id) {
+                    try {
+                        const sharedBudgetRef = doc(db, 'sharedBudgets', docRef.id)
+                        await setDoc(sharedBudgetRef, {
+                            ...newBudget,
+                            id: docRef.id,
+                            ownerEmail: authStore.userEmail
+                        })
+                        console.log('📤 Budget compartilhado criado em sharedBudgets')
+                    } catch (sharedError) {
+                        console.error('Erro ao criar sharedBudget:', sharedError)
+                    }
+                }
 
             } catch (error) {
                 console.error('❌ Erro ao adicionar budget no Firestore:', error)
@@ -872,6 +902,9 @@ export const useBudgetStore = defineStore('budget', () => {
         // Save to localStorage as backup
         localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
 
+        // Atualiza o badge do ícone do app
+        updateBadgeCount()
+
         console.log('✅ Pending expense added:', newExpense)
     }
 
@@ -913,17 +946,38 @@ export const useBudgetStore = defineStore('budget', () => {
         setTimeout(() => {
             pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
             localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+            updateBadgeCount()
         }, 1000)
     }
 
     const rejectPendingExpense = (expenseId: string) => {
         pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
         localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+        updateBadgeCount()
     }
 
     const removePendingExpense = (expenseId: string) => {
         pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
         localStorage.setItem('pendingExpenses', JSON.stringify(pendingExpenses.value))
+        updateBadgeCount()
+    }
+
+    // Atualiza o badge do ícone do app com o número de despesas pendentes
+    const updateBadgeCount = async () => {
+        if (!Capacitor.isNativePlatform()) return
+
+        try {
+            const count = pendingExpenses.value.length
+            if (count > 0) {
+                await Badge.setBadge({ count })
+                console.log('🔴 Badge atualizado:', count)
+            } else {
+                await Badge.clearBadge()
+                console.log('✅ Badge limpo')
+            }
+        } catch (error) {
+            console.error('Erro ao atualizar badge:', error)
+        }
     }
 
     // Load pending expenses from localStorage
@@ -939,6 +993,8 @@ export const useBudgetStore = defineStore('budget', () => {
             localStorage.removeItem('pendingExpenses')
             pendingExpenses.value = []
         }
+        // Atualiza o badge após carregar
+        updateBadgeCount()
     }
 
     loadPendingExpenses()
@@ -1034,6 +1090,11 @@ export const useBudgetStore = defineStore('budget', () => {
 
         const normalizedEmail = targetEmail.trim().toLowerCase()
 
+        // Verifica se o usuário está tentando compartilhar consigo mesmo
+        if (normalizedEmail === authStore.userEmail.toLowerCase().trim()) {
+            throw new Error('Você não pode compartilhar um budget consigo mesmo')
+        }
+
         try {
             // Buscar toUserId pelo email
             let toUserId = ''
@@ -1067,6 +1128,7 @@ export const useBudgetStore = defineStore('budget', () => {
 
             // Envia notificação push/email via Cloud Function
             try {
+                console.log('📤 Enviando notificação para:', normalizedEmail, 'toUserId:', toUserId)
                 const response = await fetch('https://us-central1-budget-system-34ef8.cloudfunctions.net/sendInviteNotification', {
                     method: 'POST',
                     headers: {
@@ -1077,21 +1139,24 @@ export const useBudgetStore = defineStore('budget', () => {
                         fromUserId: authStore.userId,
                         fromUserEmail: authStore.userEmail,
                         toUserEmail: normalizedEmail,
-                        toUserId: toUserId || undefined,
+                        toUserId: toUserId || null,
                         type: 'new_invite',
                         budgetCount: budgetIds.length
                     })
                 })
 
+                const responseData = await response.json().catch(() => ({}))
                 if (!response.ok) {
-                    console.warn('Falha ao enviar notificação, mas convite foi criado')
+                    console.warn('⚠️ Falha ao enviar notificação:', response.status, responseData)
+                } else {
+                    console.log('✅ Notificação enviada com sucesso:', responseData)
                 }
             } catch (notifError) {
-                console.warn('Erro ao enviar notificação:', notifError)
-                // Não falha se notificação falhar
+                console.warn('❌ Erro ao enviar notificação:', notifError)
+                // Não falha se notificação falhar - o convite já foi criado
             }
 
-            console.log('Convite enviado:', inviteRef.id)
+            console.log('✅ Convite enviado:', inviteRef.id)
             return inviteRef.id
         } catch (error) {
             console.error('Erro ao enviar convite:', error)
@@ -1507,7 +1572,8 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
-    // Obtém sugestão de budget baseado no merchant
+    // Obtém sugestão de budget baseado no merchant (tabela compartilhada)
+    // Prioridade: 1. Mapeamento do próprio usuário, 2. Budget mais usado por outros
     const getMerchantSuggestion = async (merchantName: string): Promise<{ budgetId?: string, budgetName?: string, confidence: 'high' | 'medium' | 'none' } | null> => {
         const authStore = useAuthStore()
         if (!authStore.userId || !merchantName || merchantName === 'Desconhecido') {
@@ -1515,19 +1581,22 @@ export const useBudgetStore = defineStore('budget', () => {
         }
 
         const normalized = normalizeName(merchantName)
+        console.log('[MERCHANT_SUGGESTION] Buscando sugestão para:', merchantName, '(normalized:', normalized, ')')
 
         try {
-            // 1. Procura mapeamento do próprio usuário
+            // 1. Procura mapeamento do próprio usuário (por nome normalizado)
             const userMappingsRef = collection(db, 'merchantBudgetMappings')
             const userQuery = query(
                 userMappingsRef,
-                where('userId', '==', authStore.userId)
+                where('userId', '==', authStore.userId),
+                where('normalizedMerchant', '==', normalized)
             )
             const userSnapshot = await getDocs(userQuery)
 
-            for (const doc of userSnapshot.docs) {
-                const mapping = doc.data() as MerchantBudgetMapping
-                if (normalizeName(mapping.merchantName) === normalized) {
+            if (!userSnapshot.empty) {
+                const mapping = userSnapshot.docs[0]?.data() as MerchantBudgetMapping
+                if (mapping) {
+                    console.log('[MERCHANT_SUGGESTION] Encontrado mapeamento do usuário:', mapping.budgetName)
                     return {
                         budgetId: mapping.budgetId,
                         budgetName: mapping.budgetName,
@@ -1536,51 +1605,68 @@ export const useBudgetStore = defineStore('budget', () => {
                 }
             }
 
-            // 2. Se não encontrou do usuário, procura de outros usuários
+            // 2. Se não encontrou do usuário, procura de outros usuários pelo nome normalizado
+            console.log('[MERCHANT_SUGGESTION] Buscando mapeamentos de outros usuários...')
             const allMappingsRef = collection(db, 'merchantBudgetMappings')
-            const allSnapshot = await getDocs(allMappingsRef)
+            const allQuery = query(
+                allMappingsRef,
+                where('normalizedMerchant', '==', normalized)
+            )
+            const allSnapshot = await getDocs(allQuery)
 
-            const budgetCounts: { [budgetName: string]: number } = {}
+            if (!allSnapshot.empty) {
+                // Conta quantas vezes cada budgetName aparece (ponderado por useCount)
+                const budgetCounts: { [budgetName: string]: number } = {}
 
-            for (const doc of allSnapshot.docs) {
-                const mapping = doc.data() as MerchantBudgetMapping
-                if (normalizeName(mapping.merchantName) === normalized) {
-                    budgetCounts[mapping.budgetName] = (budgetCounts[mapping.budgetName] || 0) + mapping.useCount
+                for (const doc of allSnapshot.docs) {
+                    const mapping = doc.data() as MerchantBudgetMapping
+                    // Pula se for do próprio usuário (já verificamos antes)
+                    if (mapping.userId === authStore.userId) continue
+
+                    const count = mapping.useCount || 1
+                    budgetCounts[mapping.budgetName] = (budgetCounts[mapping.budgetName] || 0) + count
+                }
+
+                if (Object.keys(budgetCounts).length > 0) {
+                    // Retorna o budget mais usado por outros usuários
+                    const entries = Object.entries(budgetCounts).sort((a, b) => b[1] - a[1])
+                    const mostUsedBudget = entries[0]?.[0]
+                    const totalVotes = entries[0]?.[1] || 0
+
+                    if (mostUsedBudget) {
+                        console.log('[MERCHANT_SUGGESTION] Budget mais votado:', mostUsedBudget, '(', totalVotes, 'votos)')
+                        return {
+                            budgetName: mostUsedBudget,
+                            confidence: 'medium'
+                        }
+                    }
                 }
             }
 
-            if (Object.keys(budgetCounts).length > 0) {
-                // Retorna o budget mais usado por outros usuários
-                const entries = Object.entries(budgetCounts).sort((a, b) => b[1] - a[1])
-                if (entries.length === 0 || !entries[0]) return null
-                const mostUsedBudget = entries[0][0]
-                return {
-                    budgetName: mostUsedBudget,
-                    confidence: 'medium'
-                }
-            }
-
+            console.log('[MERCHANT_SUGGESTION] Nenhum mapeamento encontrado')
             return { confidence: 'none' }
         } catch (error) {
-            console.error('Erro ao buscar sugestão de merchant:', error)
+            console.error('[MERCHANT_SUGGESTION] Erro ao buscar sugestão:', error)
             return { confidence: 'none' }
         }
     }
 
-    // Salva mapeamento merchant -> budget
-    const saveMerchantMapping = async (merchantId: string, merchantName: string, budgetId: string, budgetName: string) => {
+    // Salva mapeamento merchant -> budget (tabela compartilhada)
+    // Chamada quando o usuário seleciona ou cria um budget para uma despesa
+    const saveMerchantMapping = async (merchantName: string, budgetId: string, budgetName: string) => {
         const authStore = useAuthStore()
-        if (!authStore.userId) return
+        if (!authStore.userId || !merchantName || merchantName === 'Desconhecido') return
 
         try {
-            const normalized = normalizeName(merchantName)
+            const normalizedMerchant = normalizeName(merchantName)
+            console.log('[MERCHANT_MAPPING] Salvando mapeamento:', merchantName, '->', budgetName)
 
-            // Verifica se já existe mapeamento do usuário para esse merchant
+            // Verifica se já existe mapeamento do usuário para esse merchant (por nome normalizado)
             const mappingsRef = collection(db, 'merchantBudgetMappings')
             const q = query(
                 mappingsRef,
                 where('userId', '==', authStore.userId),
-                where('merchantId', '==', merchantId)
+                where('normalizedMerchant', '==', normalizedMerchant)
             )
             const snapshot = await getDocs(q)
 
@@ -1589,18 +1675,31 @@ export const useBudgetStore = defineStore('budget', () => {
                 const existingDoc = snapshot.docs[0]
                 if (existingDoc && existingDoc.id) {
                     const existingData = existingDoc.data()
-                    await updateDoc(doc(db, 'merchantBudgetMappings', existingDoc.id), {
-                        budgetId,
-                        budgetName,
-                        lastUsedAt: serverTimestamp(),
-                        useCount: (existingData.useCount || 0) + 1
-                    })
+
+                    // Só atualiza se o budget mudou
+                    if (existingData.budgetId !== budgetId) {
+                        console.log('[MERCHANT_MAPPING] Atualizando mapeamento existente')
+                        await updateDoc(doc(db, 'merchantBudgetMappings', existingDoc.id), {
+                            budgetId,
+                            budgetName,
+                            lastUsedAt: serverTimestamp(),
+                            useCount: (existingData.useCount || 0) + 1
+                        })
+                    } else {
+                        // Mesmo budget, só incrementa contador
+                        console.log('[MERCHANT_MAPPING] Incrementando contador')
+                        await updateDoc(doc(db, 'merchantBudgetMappings', existingDoc.id), {
+                            lastUsedAt: serverTimestamp(),
+                            useCount: (existingData.useCount || 0) + 1
+                        })
+                    }
                 }
             } else {
-                // Cria novo
+                // Cria novo mapeamento
+                console.log('[MERCHANT_MAPPING] Criando novo mapeamento')
                 const newMapping = {
-                    merchantId,
                     merchantName,
+                    normalizedMerchant,
                     budgetId,
                     budgetName,
                     userId: authStore.userId,
@@ -1610,8 +1709,10 @@ export const useBudgetStore = defineStore('budget', () => {
                 }
                 await addDoc(collection(db, 'merchantBudgetMappings'), newMapping)
             }
+
+            console.log('[MERCHANT_MAPPING] Mapeamento salvo com sucesso!')
         } catch (error) {
-            console.error('Erro ao salvar mapeamento:', error)
+            console.error('[MERCHANT_MAPPING] Erro ao salvar mapeamento:', error)
         }
     }
 
@@ -1666,11 +1767,10 @@ export const useBudgetStore = defineStore('budget', () => {
             const docRef = await addDoc(transactionsRef, transaction)
             console.log('[SAVE_TRANSACTION] Transacao salva com ID:', docRef.id)
 
-            // Se tem merchant, salva mapeamento
-            if (transaction.merchantId && transaction.merchantName) {
+            // Se tem merchant, salva mapeamento na tabela compartilhada
+            if (hasMerchant && expense.merchantName) {
                 await saveMerchantMapping(
-                    transaction.merchantId as string,
-                    transaction.merchantName as string,
+                    expense.merchantName,
                     budgetId,
                     budget.name
                 )
@@ -1727,6 +1827,15 @@ export const useBudgetStore = defineStore('budget', () => {
             const transactionsRef = collection(db, 'users', authStore.userId, 'transactions')
             const docRef = await addDoc(transactionsRef, transaction)
             console.log('[SAVE_MANUAL_TRANSACTION] Transacao salva com ID:', docRef.id)
+
+            // Se tem merchant, salva mapeamento na tabela compartilhada
+            if (manualExpense.merchantName && manualExpense.merchantName !== 'Desconhecido') {
+                await saveMerchantMapping(
+                    manualExpense.merchantName,
+                    budgetId,
+                    budget.name
+                )
+            }
 
             return docRef.id
         } catch (error) {
@@ -1965,6 +2074,7 @@ export const useBudgetStore = defineStore('budget', () => {
         const oldBudgetId = transactionData.budgetId
         const amount = transactionData.amount || 0
         const isIncome = transactionData.isIncome || false
+        const merchantName = transactionData.merchantName
 
         const newBudget = budgets.value.find(b => b.id === newBudgetId)
         const oldBudget = budgets.value.find(b => b.id === oldBudgetId)
@@ -1994,6 +2104,11 @@ export const useBudgetStore = defineStore('budget', () => {
                 await updateBudget(newBudgetId, { spentValue: newSpent })
             }
 
+            // Salvar mapeamento merchant->budget se tiver merchantName
+            if (merchantName && merchantName !== 'Desconhecido') {
+                await saveMerchantMapping(merchantName, newBudgetId, newBudget.name)
+            }
+
             console.log('[TRANSFER] Transação transferida com sucesso')
         } catch (error) {
             console.error('Erro ao transferir transação:', error)
@@ -2020,6 +2135,7 @@ export const useBudgetStore = defineStore('budget', () => {
         setTimeout(() => {
             pendingExpenses.value = pendingExpenses.value.filter(e => e.id !== expenseId)
             savePendingExpensesToFirestore()
+            updateBadgeCount()
         }, 1000)
     }
 

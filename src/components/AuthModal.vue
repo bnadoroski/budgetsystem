@@ -20,11 +20,11 @@
                         <p class="verification-hint">
                             Clique no link do email para confirmar sua conta.
                         </p>
-                        
+
                         <button @click="checkVerification" class="btn-submit" :disabled="loading">
                             {{ loading ? 'Verificando...' : 'Já verifiquei meu email' }}
                         </button>
-                        
+
                         <button @click="resendEmail" class="btn-secondary" :disabled="resendCooldown > 0">
                             {{ resendCooldown > 0 ? `Reenviar em ${resendCooldown}s` : 'Reenviar email' }}
                         </button>
@@ -41,18 +41,12 @@
                         <p class="forgot-text">
                             Digite seu email e enviaremos um link para redefinir sua senha.
                         </p>
-                        
+
                         <form @submit.prevent="handleForgotPassword">
                             <div class="form-group">
                                 <label for="forgot-email">Email</label>
-                                <input 
-                                    id="forgot-email" 
-                                    v-model="email" 
-                                    type="email" 
-                                    required 
-                                    placeholder="seu@email.com"
-                                    autocomplete="email" 
-                                />
+                                <input id="forgot-email" v-model="email" type="email" required
+                                    placeholder="seu@email.com" autocomplete="email" />
                             </div>
 
                             <button type="submit" class="btn-submit" :disabled="loading">
@@ -78,41 +72,31 @@
                         <form @submit.prevent="handleSubmit">
                             <div class="form-group">
                                 <label for="auth-email">Email</label>
-                                <input 
-                                    id="auth-email" 
-                                    v-model="email" 
-                                    type="email" 
-                                    required 
-                                    placeholder="seu@email.com"
-                                    autocomplete="email" 
-                                />
+                                <input id="auth-email" v-model="email" type="email" required placeholder="seu@email.com"
+                                    autocomplete="email" />
                             </div>
 
                             <div class="form-group">
                                 <label for="auth-password">Senha</label>
                                 <div class="password-input-wrapper">
-                                    <input 
-                                        id="auth-password" 
-                                        v-model="password" 
-                                        :type="showPassword ? 'text' : 'password'" 
-                                        required
-                                        placeholder="Mínimo 6 caracteres" 
-                                        :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" 
-                                        minlength="6" 
-                                    />
-                                    <button 
-                                        type="button" 
-                                        class="toggle-password" 
-                                        @click="showPassword = !showPassword"
-                                        tabindex="-1"
-                                    >
-                                        <svg v-if="showPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                                            <line x1="1" y1="1" x2="23" y2="23"/>
+                                    <input id="auth-password" v-model="password"
+                                        :type="showPassword ? 'text' : 'password'" required
+                                        placeholder="Mínimo 6 caracteres"
+                                        :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
+                                        minlength="6" />
+                                    <button type="button" class="toggle-password" @click="showPassword = !showPassword"
+                                        tabindex="-1">
+                                        <svg v-if="showPassword" xmlns="http://www.w3.org/2000/svg" width="20"
+                                            height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2">
+                                            <path
+                                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                            <line x1="1" y1="1" x2="23" y2="23" />
                                         </svg>
-                                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                            <circle cx="12" cy="12" r="3"/>
+                                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                            <circle cx="12" cy="12" r="3" />
                                         </svg>
                                     </button>
                                 </div>
@@ -122,28 +106,23 @@
                             <div v-if="mode === 'register'" class="form-group">
                                 <label for="auth-confirm-password">Confirmar Senha</label>
                                 <div class="password-input-wrapper">
-                                    <input 
-                                        id="auth-confirm-password" 
-                                        v-model="confirmPassword" 
-                                        :type="showConfirmPassword ? 'text' : 'password'" 
-                                        required
-                                        placeholder="Digite a senha novamente" 
-                                        autocomplete="new-password" 
-                                        minlength="6" 
-                                    />
-                                    <button 
-                                        type="button" 
-                                        class="toggle-password" 
-                                        @click="showConfirmPassword = !showConfirmPassword"
-                                        tabindex="-1"
-                                    >
-                                        <svg v-if="showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
-                                            <line x1="1" y1="1" x2="23" y2="23"/>
+                                    <input id="auth-confirm-password" v-model="confirmPassword"
+                                        :type="showConfirmPassword ? 'text' : 'password'" required
+                                        placeholder="Digite a senha novamente" autocomplete="new-password"
+                                        minlength="6" />
+                                    <button type="button" class="toggle-password"
+                                        @click="showConfirmPassword = !showConfirmPassword" tabindex="-1">
+                                        <svg v-if="showConfirmPassword" xmlns="http://www.w3.org/2000/svg" width="20"
+                                            height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2">
+                                            <path
+                                                d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                                            <line x1="1" y1="1" x2="23" y2="23" />
                                         </svg>
-                                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                            <circle cx="12" cy="12" r="3"/>
+                                        <svg v-else xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                            <circle cx="12" cy="12" r="3" />
                                         </svg>
                                     </button>
                                 </div>
@@ -152,7 +131,8 @@
                                 </p>
                             </div>
 
-                            <button type="submit" class="btn-submit" :disabled="loading || (mode === 'register' && password !== confirmPassword)">
+                            <button type="submit" class="btn-submit"
+                                :disabled="loading || (mode === 'register' && password !== confirmPassword)">
                                 {{ loading ? 'Carregando...' : (mode === 'login' ? 'Entrar' : 'Criar Conta') }}
                             </button>
                         </form>
@@ -197,22 +177,12 @@
         </Transition>
 
         <!-- Toast de erro -->
-        <ToastNotification
-            :show="showErrorToast"
-            :message="toastMessage"
-            type="error"
-            :duration="5000"
-            @close="showErrorToast = false"
-        />
+        <ToastNotification :show="showErrorToast" :message="toastMessage" type="error" :duration="5000"
+            @close="showErrorToast = false" />
 
         <!-- Toast de sucesso -->
-        <ToastNotification
-            :show="showSuccessToast"
-            :message="successMessage"
-            type="success"
-            :duration="4000"
-            @close="showSuccessToast = false"
-        />
+        <ToastNotification :show="showSuccessToast" :message="successMessage" type="success" :duration="4000"
+            @close="showSuccessToast = false" />
     </Teleport>
 </template>
 
@@ -321,7 +291,7 @@ const handleSubmit = async () => {
                 verificationEmail.value = email.value
                 mode.value = 'verification'
                 startResendCooldown()
-                
+
                 successMessage.value = '📧 Conta criada! Verifique seu email.'
                 showSuccessToast.value = true
             }
@@ -393,11 +363,11 @@ const resendEmail = async () => {
 
 const startResendCooldown = () => {
     resendCooldown.value = 60 // 60 segundos
-    
+
     if (cooldownTimer) {
         clearInterval(cooldownTimer)
     }
-    
+
     cooldownTimer = window.setInterval(() => {
         resendCooldown.value--
         if (resendCooldown.value <= 0) {
@@ -462,7 +432,7 @@ const close = () => {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: 10000;
 }
 
 .modal-content {

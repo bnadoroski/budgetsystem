@@ -16,6 +16,9 @@ export interface NotificationPluginPlugin {
     // Abre configurações de bateria do app
     openBatterySettings(): Promise<void>
 
+    // Abre configurações de notificação do app
+    openNotificationSettings(): Promise<void>
+
     // Carrega despesas pendentes que foram salvas enquanto o app estava fechado
     loadPendingExpenses(): Promise<{ expenses: BankExpenseEvent[], count: number }>
 

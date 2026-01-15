@@ -112,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import type { BudgetGroup } from '@/types/budget'
 import ColorPicker from './ColorPicker.vue'
@@ -121,6 +121,8 @@ import ToastNotification from './ToastNotification.vue'
 
 const props = defineProps<{
     show: boolean
+    editGroupId?: string | null
+    deleteGroupId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -137,6 +139,32 @@ const showDeleteConfirm = ref(false)
 const groupIdToDelete = ref<string | null>(null)
 const showErrorToast = ref(false)
 const errorMessage = ref('')
+
+// Watch para pré-selecionar grupo para edição
+watch(() => props.editGroupId, (newEditId) => {
+    if (newEditId && props.show) {
+        const group = budgetStore.groups.find(g => g.id === newEditId)
+        if (group) {
+            handleEditGroup(group)
+        }
+    }
+}, { immediate: true })
+
+// Watch para pré-selecionar grupo para deletar
+watch(() => props.deleteGroupId, (newDeleteId) => {
+    if (newDeleteId && props.show) {
+        handleDeleteGroup(newDeleteId)
+    }
+}, { immediate: true })
+
+// Reset ao fechar modal
+watch(() => props.show, (isVisible) => {
+    if (!isVisible) {
+        editingGroupId.value = null
+        showDeleteConfirm.value = false
+        groupIdToDelete.value = null
+    }
+})
 
 const handleAddGroup = async () => {
     if (!newGroupName.value) return

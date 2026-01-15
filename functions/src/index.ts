@@ -1,5 +1,6 @@
 import { setGlobalOptions } from "firebase-functions";
 import { onRequest } from "firebase-functions/https";
+import { onSchedule } from "firebase-functions/scheduler";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
 
@@ -156,14 +157,33 @@ export const sendInviteNotification = onRequest(async (req, res) => {
             notificationData.action = "view_invite";
 
             // Envia push notification se o destinatário tiver FCM token
+            logger.info("Processing new_invite", { toUserId, toUserEmail });
+
             if (toUserId) {
+                logger.info("toUserId found, fetching user document", { toUserId });
                 const toUserDoc = await admin.firestore()
                     .collection("users")
                     .doc(toUserId)
                     .get();
 
-                const fcmToken = toUserDoc.data()?.fcmToken;
-                if (fcmToken) {
+                const userData = toUserDoc.data();
+                const fcmToken = userData?.fcmToken;
+                const notificationsEnabled = userData?.notificationsEnabled;
+
+                logger.info("User document fetched", {
+                    exists: toUserDoc.exists,
+                    hasToken: !!fcmToken,
+                    notificationsEnabled,
+                    tokenPrefix: fcmToken ? fcmToken.substring(0, 20) + "..." : "none"
+                });
+
+                // Verifica se o usuário tem notificações habilitadas (default: true)
+                if (notificationsEnabled === false) {
+                    logger.info("User has notifications disabled, skipping push", {
+                        toUserId,
+                        toUserEmail
+                    });
+                } else if (fcmToken) {
                     const message = {
                         token: fcmToken,
                         notification: {
@@ -172,9 +192,21 @@ export const sendInviteNotification = onRequest(async (req, res) => {
                         },
                         data: notificationData,
                     };
-                    await admin.messaging().send(message);
-                    logger.info("Push notification sent to recipient", { toUserId });
+                    try {
+                        await admin.messaging().send(message);
+                        logger.info("Push notification sent to recipient", { toUserId });
+                    } catch (fcmError: any) {
+                        logger.error("FCM send failed", {
+                            error: fcmError.message,
+                            code: fcmError.code,
+                            toUserId
+                        });
+                    }
+                } else {
+                    logger.warn("No FCM token for recipient", { toUserId, toUserEmail });
                 }
+            } else {
+                logger.warn("No toUserId provided, cannot send push", { toUserEmail });
             }
 
             // TODO: Enviar email para o destinatário
@@ -205,8 +237,16 @@ export const sendInviteNotification = onRequest(async (req, res) => {
                     .doc(fromUserId)
                     .get();
 
-                const fcmToken = fromUserDoc.data()?.fcmToken;
-                if (fcmToken) {
+                const userData = fromUserDoc.data();
+                const fcmToken = userData?.fcmToken;
+                const notificationsEnabled = userData?.notificationsEnabled;
+
+                // Verifica se o usuário tem notificações habilitadas (default: true)
+                if (notificationsEnabled === false) {
+                    logger.info("User has notifications disabled, skipping push", {
+                        fromUserId
+                    });
+                } else if (fcmToken) {
                     const message = {
                         token: fcmToken,
                         notification: {
@@ -245,8 +285,16 @@ export const sendInviteNotification = onRequest(async (req, res) => {
                     .doc(fromUserId)
                     .get();
 
-                const fcmToken = fromUserDoc.data()?.fcmToken;
-                if (fcmToken) {
+                const userData = fromUserDoc.data();
+                const fcmToken = userData?.fcmToken;
+                const notificationsEnabled = userData?.notificationsEnabled;
+
+                // Verifica se o usuário tem notificações habilitadas (default: true)
+                if (notificationsEnabled === false) {
+                    logger.info("User has notifications disabled, skipping push", {
+                        fromUserId
+                    });
+                } else if (fcmToken) {
                     const message = {
                         token: fcmToken,
                         notification: {
@@ -282,5 +330,121 @@ export const sendInviteNotification = onRequest(async (req, res) => {
     } catch (error) {
         logger.error("Error sending invite notification", error);
         res.status(500).send(`Error sending invite notification: ${error}`);
+    }
+});
+
+/**
+ * Cloud Function schedulada para notificar usuários inativos com despesas pendentes
+ * Executa diariamente às 10h (horário de Brasília = 13h UTC)
+ */
+export const checkInactiveUsersWithPendingExpenses = onSchedule({
+    schedule: "0 13 * * *", // Todo dia às 13h UTC (10h BRT)
+    timeZone: "America/Sao_Paulo",
+    retryCount: 3,
+}, async () => {
+    logger.info("🔔 Iniciando verificação de usuários inativos...");
+
+    try {
+        const db = admin.firestore();
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        logger.info("📅 Buscando usuários inativos desde:", sevenDaysAgo.toISOString());
+
+        // Busca todos os usuários
+        const usersSnapshot = await db.collection("users").get();
+
+        let notificationsSent = 0;
+        let usersChecked = 0;
+
+        for (const userDoc of usersSnapshot.docs) {
+            usersChecked++;
+            const userData = userDoc.data();
+            const userId = userDoc.id;
+
+            // Verifica se tem FCM token e notificações habilitadas
+            if (!userData.fcmToken) {
+                continue;
+            }
+
+            // Se notificações desabilitadas, pula
+            if (userData.notificationsEnabled === false) {
+                continue;
+            }
+
+            // Verifica se está inativo há mais de 7 dias
+            const lastActiveAt = userData.lastActiveAt ?
+                new Date(userData.lastActiveAt) : null;
+
+            if (!lastActiveAt || lastActiveAt > sevenDaysAgo) {
+                // Usuário ativo recentemente, pula
+                continue;
+            }
+
+            // Verifica se tem despesas pendentes
+            try {
+                const pendingDoc = await db
+                    .collection("users")
+                    .doc(userId)
+                    .collection("data")
+                    .doc("pendingExpenses")
+                    .get();
+
+                if (!pendingDoc.exists) {
+                    continue;
+                }
+
+                const pendingData = pendingDoc.data();
+                const expenses = pendingData?.expenses || [];
+
+                if (expenses.length === 0) {
+                    continue;
+                }
+
+                // Usuário inativo com despesas pendentes - envia notificação!
+                logger.info("📤 Enviando notificação para usuário inativo:", {
+                    userId,
+                    lastActiveAt: lastActiveAt.toISOString(),
+                    pendingExpensesCount: expenses.length,
+                });
+
+                const message = {
+                    token: userData.fcmToken,
+                    notification: {
+                        title: "💰 Você tem despesas pendentes!",
+                        body: `Você tem ${expenses.length} despesa(s) aguardando aprovação. ` +
+                            `Abra o app para categorizar seus gastos.`,
+                    },
+                    data: {
+                        type: "pending_expenses_reminder",
+                        count: expenses.length.toString(),
+                    },
+                };
+
+                try {
+                    await admin.messaging().send(message);
+                    notificationsSent++;
+                    logger.info("✅ Notificação enviada para:", userId);
+                } catch (fcmError: any) {
+                    logger.error("❌ Erro ao enviar FCM:", {
+                        userId,
+                        error: fcmError.message,
+                    });
+                }
+            } catch (pendingError) {
+                logger.error("Erro ao verificar pendingExpenses:", {
+                    userId,
+                    error: pendingError,
+                });
+            }
+        }
+
+        logger.info("🏁 Verificação concluída:", {
+            usersChecked,
+            notificationsSent,
+        });
+    } catch (error) {
+        logger.error("❌ Erro na verificação de usuários inativos:", error);
+        throw error;
     }
 });

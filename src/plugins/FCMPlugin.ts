@@ -68,17 +68,24 @@ export async function initFCM() {
 }
 
 async function sendTokenToServer(token: string) {
-    const userId = localStorage.getItem('userId');
+    const authStore = useAuthStore();
+    const userId = authStore.user?.uid || localStorage.getItem('userId');
     if (!userId) return;
 
     try {
-        // Save token to Firestore
+        // Save token to Firestore directly on user document
         const { doc, setDoc } = await import('firebase/firestore');
         const { db } = await import('@/config/firebase');
 
-        await setDoc(doc(db, 'users', userId, 'devices', 'current'), {
+        await setDoc(doc(db, 'users', userId), {
             fcmToken: token,
-            updatedAt: new Date()
+            fcmTokenUpdatedAt: new Date().toISOString()
+        }, { merge: true });
+
+        // Also save to Preferences for local access
+        await Preferences.set({
+            key: 'fcmToken',
+            value: token
         });
 
         console.log('✅ FCM token saved to Firestore');
@@ -96,6 +103,44 @@ export async function getToken() {
     } catch (error) {
         console.error('Error getting FCM token:', error)
         return { token: '' }
+    }
+}
+
+// Verifica se tem permissão de push notifications
+export async function checkPushPermission(): Promise<{ granted: boolean, status: string }> {
+    try {
+        const permStatus = await PushNotifications.checkPermissions();
+        return {
+            granted: permStatus.receive === 'granted',
+            status: permStatus.receive
+        };
+    } catch (error) {
+        console.error('Error checking push permission:', error);
+        return { granted: false, status: 'denied' };
+    }
+}
+
+// Solicita permissão de push notifications
+export async function requestPushPermission(): Promise<{ granted: boolean, status: string }> {
+    try {
+        let permStatus = await PushNotifications.checkPermissions();
+
+        if (permStatus.receive === 'prompt' || permStatus.receive === 'prompt-with-rationale') {
+            permStatus = await PushNotifications.requestPermissions();
+        }
+
+        // Se foi concedido, registra para push
+        if (permStatus.receive === 'granted') {
+            await PushNotifications.register();
+        }
+
+        return {
+            granted: permStatus.receive === 'granted',
+            status: permStatus.receive
+        };
+    } catch (error) {
+        console.error('Error requesting push permission:', error);
+        return { granted: false, status: 'denied' };
     }
 }
 
@@ -125,6 +170,8 @@ export async function showLocalNotification(options: FCMNotificationOptions) {
 export default {
     initFCM,
     getToken,
-    showLocalNotification
+    showLocalNotification,
+    checkPushPermission,
+    requestPushPermission
 }
 

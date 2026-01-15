@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(com.codetrixstudio.capacitor.GoogleAuth.GoogleAuth.class);
         registerPlugin(NotificationPlugin.class);
         registerPlugin(BadgePlugin.class);
+        registerPlugin(FCMTokenPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

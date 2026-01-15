@@ -25,8 +25,9 @@ import ConfirmResetModal from '@/components/ConfirmResetModal.vue'
 import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
 import TransactionsModal from '@/components/TransactionsModal.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
+import WelcomeScreen from '@/components/WelcomeScreen.vue'
 import { useToast } from '@/composables/useToast'
-import { initFCM } from '@/plugins/FCMPlugin'
+import { initFCM, checkPushPermission, requestPushPermission } from '@/plugins/FCMPlugin'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
@@ -107,6 +108,14 @@ const pullThreshold = 80
 
 const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
+// Computed para convites pendentes (não vistos ou pending status)
+const pendingInvitesCount = computed(() => {
+  return budgetStore.shareInvites.filter(inv =>
+    inv.status === 'pending' &&
+    inv.toUserEmail?.toLowerCase() === authStore.userEmail?.toLowerCase()
+  ).length
+})
+
 // Handler do botão voltar do Android
 const handleBackButton = () => {
   // Fecha modais abertas na ordem de prioridade
@@ -175,8 +184,8 @@ const handleBackButton = () => {
   CapacitorApp.minimizeApp()
 }
 
-const handleAddBudget = async (name: string, value: number, color: string, groupId?: string) => {
-  await budgetStore.addBudget(name, value, color, groupId)
+const handleAddBudget = async (name: string, value: number, color: string, groupId?: string, shareWithPartner?: boolean) => {
+  await budgetStore.addBudget(name, value, color, groupId, shareWithPartner)
   const { success } = useToast()
   success(`Budget "${name}" criado com sucesso!`)
 
@@ -184,8 +193,8 @@ const handleAddBudget = async (name: string, value: number, color: string, group
   if (pendingExpenseToAdd.value) {
     const newBudget = budgetStore.budgets.find(b => b.name === name)
     if (newBudget) {
-      await budgetStore.addExpense(newBudget.id, pendingExpenseToAdd.value.amount)
-      budgetStore.removePendingExpense(pendingExpenseToAdd.value.id)
+      // Usa approvePendingExpenseWithTransaction para salvar transação e mapeamento merchant->budget
+      await budgetStore.approvePendingExpenseWithTransaction(pendingExpenseToAdd.value.id, newBudget.id)
       pendingExpenseToAdd.value = null
       success('Despesa pendente adicionada!')
     }
@@ -315,8 +324,26 @@ const handleGroupsClick = () => {
   if (!authStore.isAuthenticated) {
     showAuthModal.value = true
   } else {
+    editGroupIdForModal.value = null
+    deleteGroupIdForModal.value = null
     showGroupsModal.value = true
   }
+}
+
+// Handlers para editar/deletar grupo via long-press
+const editGroupIdForModal = ref<string | null>(null)
+const deleteGroupIdForModal = ref<string | null>(null)
+
+const handleEditGroup = (groupId: string) => {
+  editGroupIdForModal.value = groupId
+  deleteGroupIdForModal.value = null
+  showGroupsModal.value = true
+}
+
+const handleDeleteGroup = (groupId: string) => {
+  deleteGroupIdForModal.value = groupId
+  editGroupIdForModal.value = null
+  showGroupsModal.value = true
 }
 
 const ungroupedBudgets = computed(() => {
@@ -368,6 +395,12 @@ const aggregatedUngroupedBudgets = computed(() => {
   return result
 })
 
+// Handler para abrir modal de login da WelcomeScreen
+const handleWelcomeLogin = () => {
+  console.log('🔐 handleWelcomeLogin called, opening AuthModal')
+  showAuthModal.value = true
+}
+
 const handleProfileClick = () => {
   if (authStore.isAuthenticated) {
     showProfileModal.value = true
@@ -391,9 +424,43 @@ const handleReviewInvite = (invite: any) => {
 const isUngroupedAreaDragOver = ref(false)
 const ungroupedDragCounter = ref(0)
 
+// Auto-scroll durante drag
+let scrollInterval: number | null = null
+const SCROLL_ZONE = 80 // pixels da borda para ativar scroll
+const SCROLL_SPEED = 10 // pixels por frame
+
+const startAutoScroll = (direction: 'up' | 'down') => {
+  if (scrollInterval) return
+  scrollInterval = window.setInterval(() => {
+    window.scrollBy(0, direction === 'up' ? -SCROLL_SPEED : SCROLL_SPEED)
+  }, 16) // ~60fps
+}
+
+const stopAutoScroll = () => {
+  if (scrollInterval) {
+    clearInterval(scrollInterval)
+    scrollInterval = null
+  }
+}
+
+const checkAutoScroll = (clientY: number) => {
+  const viewportHeight = window.innerHeight
+  if (clientY < SCROLL_ZONE) {
+    startAutoScroll('up')
+  } else if (clientY > viewportHeight - SCROLL_ZONE) {
+    startAutoScroll('down')
+  } else {
+    stopAutoScroll()
+  }
+}
+
 const handleUngroupedDragOver = (event: DragEvent) => {
   event.preventDefault()
   isUngroupedAreaDragOver.value = true
+  // Auto-scroll durante drag
+  if (event.clientY) {
+    checkAutoScroll(event.clientY)
+  }
 }
 
 const handleUngroupedDragEnter = (event: DragEvent) => {
@@ -406,6 +473,7 @@ const handleUngroupedDragLeave = () => {
   ungroupedDragCounter.value--
   if (ungroupedDragCounter.value === 0) {
     isUngroupedAreaDragOver.value = false
+    stopAutoScroll()
   }
 }
 
@@ -413,6 +481,7 @@ const handleUngroupedDrop = async (event: DragEvent) => {
   event.preventDefault()
   ungroupedDragCounter.value = 0
   isUngroupedAreaDragOver.value = false
+  stopAutoScroll()
 
   let budgetId = event.dataTransfer?.getData('budgetId')
   if (!budgetId) {
@@ -459,7 +528,7 @@ const handlePermissionAllow = async () => {
   showPermissionModal.value = false
   await NotificationPlugin.requestPermission()
   permissionDenied.value = false
-  
+
   // Após conceder permissão de notificação, verifica otimização de bateria
   // Isso é importante para o serviço funcionar em background
   setTimeout(async () => {
@@ -525,17 +594,17 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
     (inv.status === 'accepted' || inv.status === 'rejected') &&
     !inv.senderNotifiedAt
   )
-  
+
   if (respondedInvite && !showInviteResponseModal.value) {
     const { success, error: showError } = useToast()
-    
+
     // Mostrar toast imediato
     if (respondedInvite.status === 'accepted') {
       success(`${respondedInvite.toUserEmail} aceitou seu convite! 🎉`)
     } else {
       showError(`${respondedInvite.toUserEmail} recusou seu convite.`)
     }
-    
+
     // Mostrar modal de resposta
     inviteResponseData.value = {
       isAccepted: respondedInvite.status === 'accepted',
@@ -549,14 +618,14 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
   // 2. Verificar se tem convite não visto E modal não está aberta (evita duplicação)
   if (!showShareInviteModal.value && !showInviteResponseModal.value) {
     const unviewedInvite = newInvites.find(inv =>
-      !inv.viewedAt && 
+      !inv.viewedAt &&
       inv.status === 'pending' &&
       inv.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase()
     )
     if (unviewedInvite) {
       const { info } = useToast()
       info(`Você recebeu um convite de ${unviewedInvite.fromUserEmail}! 📬`)
-      
+
       currentInvite.value = unviewedInvite
       showShareInviteModal.value = true
       // Marcar como visto
@@ -651,6 +720,9 @@ onMounted(async () => {
       await budgetStore.loadGroups(authStore.user.uid)
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
 
+      // Atualiza lastActiveAt para controle de inatividade
+      await authStore.updateLastActive()
+
       // Initialize FCM
       try {
         await initFCM()
@@ -658,10 +730,45 @@ onMounted(async () => {
       } catch (error) {
         console.error('❌ FCM initialization failed:', error)
       }
+
+      // Verifica se é primeira instalação para push notifications
+      const hasAskedPushPermission = localStorage.getItem('hasAskedPushPermission')
+      const pushPermissionDenied = localStorage.getItem('pushPermissionDenied')
+
+      if (!hasAskedPushPermission && pushPermissionDenied !== 'true') {
+        // Primeira vez - solicita permissão de push
+        console.log('📱 Primeira instalação - solicitando permissão de push...')
+        localStorage.setItem('hasAskedPushPermission', 'true')
+
+        setTimeout(async () => {
+          try {
+            const result = await requestPushPermission()
+            if (result.granted) {
+              console.log('✅ Permissão de push concedida!')
+              localStorage.setItem('notificationsEnabled', 'true')
+              localStorage.setItem('pushPermissionDenied', 'false')
+            } else {
+              console.log('❌ Permissão de push negada pelo usuário')
+              localStorage.setItem('notificationsEnabled', 'false')
+              localStorage.setItem('pushPermissionDenied', 'true')
+            }
+          } catch (error) {
+            console.error('Erro ao solicitar permissão de push:', error)
+          }
+        }, 2000) // Delay para não sobrecarregar o usuário
+      }
     }
 
     // Registra listener do botão voltar do Android
     CapacitorApp.addListener('backButton', handleBackButton)
+
+    // Listener para quando app volta do background - atualiza lastActiveAt
+    CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
+      if (isActive && authStore.isAuthenticated) {
+        console.log('📱 App voltou ao primeiro plano - atualizando lastActiveAt')
+        await authStore.updateLastActive()
+      }
+    })
 
     // Verifica se tem permissão
     const permissionResult = await NotificationPlugin.checkPermission()
@@ -697,11 +804,11 @@ onMounted(async () => {
         showPendingExpensesModal.value = true
       }
     })
-    
+
     // Listener para verificação de email
     await NotificationPlugin.addListener('emailVerification', async () => {
       console.log('📧 ===== NOTIFICAÇÃO DE VERIFICAÇÃO DE EMAIL =====')
-      
+
       // Tenta verificar automaticamente se o email foi verificado
       if (authStore.isAuthenticated && !authStore.isEmailVerified) {
         console.log('🔄 Verificando status do email...')
@@ -720,7 +827,7 @@ onMounted(async () => {
     try {
       const pendingResult = await NotificationPlugin.loadPendingExpenses()
       console.log('📂 Despesas pendentes carregadas:', pendingResult.count)
-      
+
       if (pendingResult.count > 0) {
         // Adiciona cada despesa pendente ao store
         for (const expense of pendingResult.expenses) {
@@ -735,11 +842,11 @@ onMounted(async () => {
             installmentTotal: expense.installmentTotal
           })
         }
-        
+
         // Limpa as despesas do SharedPreferences nativo
         await NotificationPlugin.clearPendingExpenses()
         console.log('✅ Despesas pendentes processadas e limpas!')
-        
+
         // Mostra modal de despesas pendentes
         setTimeout(() => {
           showPendingExpensesModal.value = true
@@ -785,12 +892,22 @@ onMounted(async () => {
 // Remove listener ao desmontar componente
 onUnmounted(() => {
   CapacitorApp.removeAllListeners()
+  stopAutoScroll()
 })
 </script>
 
 <template>
-  <div class="app-container" @touchstart="handleTouchStart" @touchmove.passive="handleTouchMove"
+  <!-- Tela de Boas-vindas quando não logado -->
+  <WelcomeScreen v-if="!authStore.isAuthenticated && !authStore.loading" @login="handleWelcomeLogin" />
+
+  <div v-else class="app-container" @touchstart="handleTouchStart" @touchmove.passive="handleTouchMove"
     @touchend="handleTouchEnd">
+    <!-- Loading State -->
+    <div v-if="authStore.loading" class="loading-screen">
+      <div class="loading-spinner"></div>
+      <p>Carregando...</p>
+    </div>
+
     <!-- Pull to Refresh Indicator -->
     <div class="pull-to-refresh" :style="{ transform: `translateY(${pullDistance - 60}px)` }">
       <div class="pull-spinner" :class="{ spinning: isRefreshing }">
@@ -889,7 +1006,8 @@ onUnmounted(() => {
       <!-- Groups -->
       <BudgetGroup v-for="group in budgetStore.groups" :key="group.id" :group="group" @edit-budget="handleEditBudget"
         @delete-budget="handleDeleteBudget" @add-budget-to-group="handleAddBudgetToGroup"
-        @confirm-reset="handleConfirmReset" @view-transactions="handleViewTransactions" />
+        @confirm-reset="handleConfirmReset" @view-transactions="handleViewTransactions" @edit-group="handleEditGroup"
+        @delete-group="handleDeleteGroup" />
 
       <!-- Ungrouped Budgets (com agregação) - Drop Zone -->
       <div class="ungrouped-drop-zone" :class="{ 'drag-over': isUngroupedAreaDragOver }"
@@ -1084,6 +1202,7 @@ onUnmounted(() => {
           </g>
         </svg>
         <span v-if="authStore.isAuthenticated" class="auth-indicator"></span>
+        <span v-if="pendingInvitesCount > 0" class="invite-badge">{{ pendingInvitesCount }}</span>
       </button>
     </div>
 
@@ -1093,11 +1212,11 @@ onUnmounted(() => {
       :edit-budget-group-id="editingBudgetData?.groupId"
       @close="showAddModal = false; selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
       @submit="handleAddBudget" @update="handleUpdateBudget" />
-    <AuthModal :show="showAuthModal" :persist="!authStore.isAuthenticated" @close="showAuthModal = false" />
     <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false"
       @confirm-reset="(budgetId) => handleConfirmReset(budgetId)"
       @view-transactions="(budgetId) => handleViewTransactions(budgetId)" />
-    <GroupsModal :show="showGroupsModal" @close="showGroupsModal = false" />
+    <GroupsModal :show="showGroupsModal" :edit-group-id="editGroupIdForModal" :delete-group-id="deleteGroupIdForModal"
+      @close="showGroupsModal = false; editGroupIdForModal = null; deleteGroupIdForModal = null" />
     <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
     <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
     <PendingExpensesModal :show="showPendingExpensesModal" @close="showPendingExpensesModal = false"
@@ -1127,6 +1246,9 @@ onUnmounted(() => {
     <ToastNotification v-for="toast in toasts" :key="toast.id" :message="toast.message" :type="toast.type"
       :duration="toast.duration" :show="true" @close="() => { }" />
   </div>
+
+  <!-- AuthModal fora do v-else para funcionar na WelcomeScreen -->
+  <AuthModal :show="showAuthModal" :persist="!authStore.isAuthenticated" @close="showAuthModal = false" />
 </template>
 
 <style scoped>
@@ -1414,6 +1536,40 @@ onUnmounted(() => {
   border: 2px solid #e0e0e0;
 }
 
+.invite-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+  border-radius: 10px;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  animation: pulse-invite 2s ease-in-out infinite;
+}
+
+@keyframes pulse-invite {
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  50% {
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px rgba(255, 107, 107, 0.5);
+  }
+}
+
 .add-button {
   width: 56px;
   height: 56px;
@@ -1560,5 +1716,36 @@ body.dark-mode .history-button:hover {
     left: 50%;
     transform: translateX(-50%);
   }
+}
+
+/* Loading Screen */
+.loading-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  z-index: 9998;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+.loading-screen p {
+  font-size: 16px;
+  opacity: 0.9;
 }
 </style>

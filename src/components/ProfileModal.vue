@@ -388,15 +388,12 @@ const handleShare = async () => {
     isSharing.value = true
 
     try {
-        // Enviar convite com todos os budgets do usuário
+        // Enviar convite com todos os budgets do usuário (pode ser vazio)
         const myBudgetIds = budgetStore.budgets
             .filter(b => b.ownerId === authStore.userId)
             .map(b => b.id)
 
-        if (myBudgetIds.length === 0) {
-            throw new Error('Você não tem budgets para compartilhar')
-        }
-
+        // Permite criar vínculo mesmo sem budgets
         await budgetStore.sendShareInvite(shareEmail.value, myBudgetIds)
 
         shareSuccess.value = true

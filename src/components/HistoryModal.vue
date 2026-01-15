@@ -10,7 +10,8 @@
                 <!-- Navegação entre meses -->
                 <div class="month-navigation">
                     <button class="nav-button" @click="previousMonth" :disabled="loading">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <polyline points="15 18 9 12 15 6"></polyline>
                         </svg>
                         Anterior
@@ -18,7 +19,8 @@
                     <span class="current-month">{{ monthName }}</span>
                     <button class="nav-button" @click="nextMonth" :disabled="loading || monthOffset <= 0">
                         Próximo
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <polyline points="9 18 15 12 9 6"></polyline>
                         </svg>
                     </button>
@@ -43,7 +45,8 @@
                                 </div>
                                 <div class="summary-item">
                                     <span class="label">Total Gasto:</span>
-                                    <span class="value" :class="{ overspent: currentMonthTotalSpent > currentMonthTotalBudgeted }">
+                                    <span class="value"
+                                        :class="{ overspent: currentMonthTotalSpent > currentMonthTotalBudgeted }">
                                         {{ formatCurrency(currentMonthTotalSpent) }}
                                     </span>
                                 </div>
@@ -60,7 +63,7 @@
                             </div>
                         </div>
 
-                        <h3>Budgets Atuais</h3>
+                        <h3 v-show="budgetStore?.budgets">Budgets Atuais</h3>
                         <div v-for="budget in budgetStore.budgets" :key="budget.id" class="history-item">
                             <div class="item-header">
                                 <div class="item-name">
@@ -75,7 +78,8 @@
                                 </div>
                             </div>
                             <div class="item-values">
-                                <span>{{ formatCurrency(budget.spentValue) }} / {{ formatCurrency(budget.totalValue) }}</span>
+                                <span>{{ formatCurrency(budget.spentValue) }} / {{ formatCurrency(budget.totalValue)
+                                    }}</span>
                             </div>
                             <div class="progress-bar">
                                 <div class="progress-fill" :style="{
@@ -89,7 +93,8 @@
                     <!-- Histórico de meses anteriores -->
                     <div v-else-if="historyItems.length === 0" class="empty-history">
                         <p>Nenhum histórico encontrado para {{ monthName }}.</p>
-                        <p class="hint">O histórico é salvo quando os budgets são resetados no dia {{ budgetStore.resetDay }} de cada mês.</p>
+                        <p class="hint">O histórico é salvo quando os budgets são resetados no dia {{
+                            budgetStore.resetDay }} de cada mês.</p>
                     </div>
 
                     <div v-else class="history-list">
@@ -135,7 +140,7 @@
                             </div>
                             <div class="item-values">
                                 <span>{{ formatCurrency(item.spentValue) }} / {{ formatCurrency(item.totalValue)
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="progress-bar">
                                 <div class="progress-fill" :style="{
@@ -170,7 +175,10 @@ const monthOffset = ref(0) // 0 = mês atual, 1 = mês passado, 2 = 2 meses atr�
 const monthName = computed(() => {
     const now = new Date()
     const targetDate = new Date(now.getFullYear(), now.getMonth() - monthOffset.value, 1)
-    return targetDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    // Formato curto: "Dez/2026"
+    const month = targetDate.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+    const year = targetDate.getFullYear()
+    return `${month.charAt(0).toUpperCase() + month.slice(1)}/${year}`
 })
 
 // Cálculos para mês atual (budgets em uso)
@@ -182,7 +190,7 @@ const currentMonthTotalSpent = computed(() =>
     budgetStore.budgets.reduce((sum, b) => sum + b.spentValue, 0)
 )
 
-const currentMonthDifference = computed(() => 
+const currentMonthDifference = computed(() =>
     currentMonthTotalBudgeted.value - currentMonthTotalSpent.value
 )
 

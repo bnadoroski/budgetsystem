@@ -180,6 +180,38 @@ public class NotificationPlugin extends Plugin {
         call.resolve();
     }
 
+    // Abre configurações de notificação do app
+    @PluginMethod
+    public void openNotificationSettings(PluginCall call) {
+        Log.d(TAG, "🔔 Abrindo configurações de notificação do app...");
+        
+        try {
+            Intent intent = new Intent();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // Android 8.0+ - Abre configurações de notificação do app
+                intent.setAction(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                intent.putExtra(Settings.EXTRA_APP_PACKAGE, getContext().getPackageName());
+            } else {
+                // Android 7 e anterior - Abre configurações gerais do app
+                intent.setAction(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+            }
+            getActivity().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "❌ Erro ao abrir configurações de notificação: " + e.getMessage());
+            // Fallback para configurações gerais do app
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + getContext().getPackageName()));
+                getActivity().startActivity(intent);
+                call.resolve();
+            } catch (Exception e2) {
+                call.reject("Não foi possível abrir as configurações");
+            }
+        }
+    }
+
     // Carrega despesas pendentes que foram salvas enquanto o app estava fechado
     @PluginMethod
     public void loadPendingExpenses(PluginCall call) {

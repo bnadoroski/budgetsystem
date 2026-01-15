@@ -93,22 +93,16 @@
         </Transition>
 
         <!-- Modal de confirmação para remover compartilhamento -->
-        <ConfirmModal
-            :show="showUnshareConfirm"
-            title="Remover Compartilhamento"
+        <ConfirmModal :show="showUnshareConfirm" title="Remover Compartilhamento"
             message="Deseja <strong>remover o compartilhamento</strong> deste budget? Os usuários que têm acesso não poderão mais visualizá-lo."
-            type="warning"
-            confirm-text="Remover"
-            confirm-icon="🔗"
-            @confirm="confirmUnshare"
-            @cancel="cancelUnshare"
-        />
+            type="warning" confirm-text="Remover" confirm-icon="🔗" @confirm="confirmUnshare" @cancel="cancelUnshare" />
     </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useAuthStore } from '@/stores/auth'
 import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps<{
@@ -120,6 +114,7 @@ const emit = defineEmits<{
 }>()
 
 const budgetStore = useBudgetStore()
+const authStore = useAuthStore()
 const targetEmail = ref('')
 const selectedBudgets = ref<string[]>([])
 const isSharing = ref(false)
@@ -163,6 +158,13 @@ const toggleBudgetSelection = (budgetId: string) => {
 const handleShare = async () => {
     if (!targetEmail.value || selectedBudgets.value.length === 0) {
         shareError.value = 'Selecione pelo menos um budget e insira um email'
+        setTimeout(() => shareError.value = '', 3000)
+        return
+    }
+
+    // Verificar se o usuário está tentando compartilhar consigo mesmo
+    if (targetEmail.value.toLowerCase().trim() === authStore.userEmail?.toLowerCase().trim()) {
+        shareError.value = 'Você não pode compartilhar um budget consigo mesmo'
         setTimeout(() => shareError.value = '', 3000)
         return
     }

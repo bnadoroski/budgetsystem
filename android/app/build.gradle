@@ -61,9 +61,10 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     
-    // Firebase Cloud Messaging
-    implementation platform('com.google.firebase:firebase-bom:32.7.0')
+    // Firebase Cloud Messaging e Firestore
+    implementation platform('com.google.firebase:firebase-bom:33.0.0')
     implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.firebase:firebase-firestore'
     
     // ShortcutBadger para badges no ícone do app
     implementation 'me.leolin:ShortcutBadger:1.1.22@aar'

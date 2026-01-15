@@ -38,15 +38,15 @@
                                         expense.installmentTotal }}</span>
                                 </div>
 
-                                <div class="expense-footer">
+                                <!-- <div class="expense-footer">
                                     <span class="expense-category">🏷️ {{ expense.category }}</span>
                                     <span class="expense-time">{{ formatTime(expense.timestamp) }}</span>
-                                </div>
+                                </div> -->
 
                                 <div class="expense-suggestion">
                                     <span class="suggestion-label">Sugerido:</span>
                                     <span class="suggestion-budget">{{ suggestedBudgets[expense.id] || 'Carregando...'
-                                    }}</span>
+                                        }}</span>
                                     <button class="btn-choose-budget" @click="editExpense(expense)"
                                         title="Escolher budget">
                                         ✏️
@@ -80,13 +80,8 @@
                             <!-- Campo de descrição editável -->
                             <div class="form-group">
                                 <label class="section-title" for="editDescription">📝 Descrição</label>
-                                <input 
-                                    id="editDescription" 
-                                    v-model="editingDescription" 
-                                    type="text" 
-                                    class="description-input"
-                                    placeholder="Ex: Pagamento para empresa XYZ"
-                                />
+                                <input id="editDescription" v-model="editingDescription" type="text"
+                                    class="description-input" placeholder="Ex: Pagamento para empresa XYZ" />
                             </div>
 
                             <!-- Checkbox de Parcelamento -->
@@ -136,16 +131,10 @@
                 </Transition>
 
                 <!-- Modal de confirmação para rejeitar -->
-                <ConfirmModal
-                    :show="showRejectConfirm"
-                    title="Rejeitar Despesa"
+                <ConfirmModal :show="showRejectConfirm" title="Rejeitar Despesa"
                     message="Tem certeza que deseja <strong>rejeitar</strong> esta despesa? Ela será removida da lista."
-                    type="danger"
-                    confirm-text="Rejeitar"
-                    confirm-icon="❌"
-                    @confirm="confirmReject"
-                    @cancel="cancelReject"
-                />
+                    type="danger" confirm-text="Rejeitar" confirm-icon="❌" @confirm="confirmReject"
+                    @cancel="cancelReject" />
             </div>
         </Transition>
     </Teleport>
