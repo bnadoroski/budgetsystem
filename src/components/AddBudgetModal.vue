@@ -18,44 +18,46 @@
                     <!-- Form para Novo Budget -->
                     <form v-if="activeTab === 'budget'" @submit.prevent="handleSubmit">
                         <h2>{{ props.editBudgetId ? 'Editar Budget' : 'Novo Budget' }}</h2>
-                        <div class="form-group">
-                            <label for="budget-name">Nome do Budget</label>
-                            <input id="budget-name" v-model="budgetName" type="text" required
-                                placeholder="Ex: Alimentação" />
-                        </div>
-                        <div class="form-group">
-                            <label for="budget-value">Valor Total</label>
-                            <input id="budget-value" required :model-modifiers="{ number: true }"
-                                v-model.lazy="budgetValue" v-money3="moneyConfig" />
-                            <QuickAmountButtons @add="addAmount" />
-                        </div>
-                        <div class="form-group">
-                            <label for="budget-group">Grupo (opcional)</label>
-                            <select id="budget-group" v-model="selectedGroupId">
-                                <option value="">Sem grupo</option>
-                                <option v-for="group in budgetStore.groups" :key="group.id" :value="group.id">
-                                    {{ group.name }}
-                                </option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="budget-color">Cor</label>
-                            <div class="color-picker">
-                                <div v-for="color in availableColors" :key="color" class="color-option"
-                                    :class="{ selected: budgetColor === color }" :style="{ backgroundColor: color }"
-                                    @click="budgetColor = color"></div>
+                        <div class="form-scroll-area">
+                            <div class="form-group">
+                                <label for="budget-name">Nome do Budget</label>
+                                <input id="budget-name" v-model="budgetName" type="text" required
+                                    placeholder="Ex: Alimentação" />
+                            </div>
+                            <div class="form-group">
+                                <label for="budget-value">Valor Total</label>
+                                <input id="budget-value" required :model-modifiers="{ number: true }"
+                                    v-model.lazy="budgetValue" v-money3="moneyConfig" />
+                                <QuickAmountButtons @add="addAmount" />
+                            </div>
+                            <div class="form-group">
+                                <label for="budget-group">Grupo (opcional)</label>
+                                <select id="budget-group" v-model="selectedGroupId">
+                                    <option value="">Sem grupo</option>
+                                    <option v-for="group in budgetStore.groups" :key="group.id" :value="group.id">
+                                        {{ group.name }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="budget-color">Cor</label>
+                                <div class="color-picker">
+                                    <div v-for="color in availableColors" :key="color" class="color-option"
+                                        :class="{ selected: budgetColor === color }" :style="{ backgroundColor: color }"
+                                        @click="budgetColor = color"></div>
+                                </div>
+                            </div>
+
+                            <!-- Checkbox de compartilhar (só aparece se tem compartilhamento ativo) -->
+                            <div v-if="hasActiveSharing" class="form-group checkbox-group">
+                                <label class="checkbox-label share-checkbox">
+                                    <input type="checkbox" v-model="shareWithPartner" />
+                                    <span>💑 Compartilhar com {{ partnerEmail }}</span>
+                                </label>
+                                <p class="checkbox-hint">O budget será visível para seu parceiro(a)</p>
                             </div>
                         </div>
-                        
-                        <!-- Checkbox de compartilhar (só aparece se tem compartilhamento ativo) -->
-                        <div v-if="hasActiveSharing" class="form-group checkbox-group">
-                            <label class="checkbox-label share-checkbox">
-                                <input type="checkbox" v-model="shareWithPartner" />
-                                <span>💑 Compartilhar com {{ partnerEmail }}</span>
-                            </label>
-                            <p class="checkbox-hint">O budget será visível para seu parceiro(a)</p>
-                        </div>
-                        
+
                         <div class="form-actions">
                             <button type="button" class="btn-cancel" @click="close">Cancelar</button>
                             <button type="submit" class="btn-submit">{{ props.editBudgetId ? 'Salvar' : 'Adicionar'
@@ -67,53 +69,55 @@
                     <form v-else-if="activeTab === 'expense'" @submit.prevent="handleExpenseSubmit">
                         <h2>Novo Lançamento</h2>
 
-                        <div class="form-group">
-                            <label for="expense-value">Valor</label>
-                            <input id="expense-value" required :model-modifiers="{ number: true }"
-                                v-model.lazy="expenseValue" v-money3="moneyConfig" />
-                            <QuickAmountButtons @add="addExpenseAmount" />
-                        </div>
+                        <div class="form-scroll-area">
+                            <div class="form-group">
+                                <label for="expense-value">Valor</label>
+                                <input id="expense-value" required :model-modifiers="{ number: true }"
+                                    v-model.lazy="expenseValue" v-money3="moneyConfig" />
+                                <QuickAmountButtons @add="addExpenseAmount" />
+                            </div>
 
-                        <div class="form-group">
-                            <label for="expense-type">Tipo</label>
-                            <select id="expense-type" v-model="expenseType">
-                                <option value="expense">Gasto (-)</option>
-                                <option value="income">Recebimento (+)</option>
-                            </select>
-                        </div>
+                            <div class="form-group">
+                                <label for="expense-type">Tipo</label>
+                                <select id="expense-type" v-model="expenseType">
+                                    <option value="expense">Gasto (-)</option>
+                                    <option value="income">Recebimento (+)</option>
+                                </select>
+                            </div>
 
-                        <div class="form-group">
-                            <label for="expense-budget">Budget</label>
-                            <select id="expense-budget" v-model="selectedExpenseBudgetId" required>
-                                <option value="">Selecione um budget</option>
-                                <option v-for="budget in budgetStore.budgets" :key="budget.id" :value="budget.id">
-                                    {{ budget.name }}
-                                </option>
-                            </select>
-                        </div>
+                            <div class="form-group">
+                                <label for="expense-budget">Budget</label>
+                                <select id="expense-budget" v-model="selectedExpenseBudgetId" required>
+                                    <option value="">Selecione um budget</option>
+                                    <option v-for="budget in budgetStore.budgets" :key="budget.id" :value="budget.id">
+                                        {{ budget.name }}
+                                    </option>
+                                </select>
+                            </div>
 
-                        <!-- Checkbox de Parcelamento -->
-                        <div class="form-group checkbox-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" v-model="expenseHasInstallments" />
-                                <span>💳 Esta compra é parcelada</span>
-                            </label>
-                        </div>
+                            <!-- Checkbox de Parcelamento -->
+                            <div class="form-group checkbox-group">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" v-model="expenseHasInstallments" />
+                                    <span>💳 Esta compra é parcelada</span>
+                                </label>
+                            </div>
 
-                        <!-- Campos de Parcelamento -->
-                        <div v-show="expenseHasInstallments" class="installment-section">
-                            <label class="section-title">💳 Parcelamento</label>
-                            <div class="installment-inputs">
-                                <div class="input-group">
-                                    <label for="expense-installment-number">Parcela:</label>
-                                    <input id="expense-installment-number" v-model.number="expenseInstallmentNumber"
-                                        type="number" min="1" :max="expenseInstallmentTotal || 12" />
-                                </div>
-                                <div class="installment-separator">/</div>
-                                <div class="input-group">
-                                    <label for="expense-installment-total">Total:</label>
-                                    <input id="expense-installment-total" v-model.number="expenseInstallmentTotal"
-                                        type="number" min="1" max="99" />
+                            <!-- Campos de Parcelamento -->
+                            <div v-show="expenseHasInstallments" class="installment-section">
+                                <label class="section-title">💳 Parcelamento</label>
+                                <div class="installment-inputs">
+                                    <div class="input-group">
+                                        <label for="expense-installment-number">Parcela:</label>
+                                        <input id="expense-installment-number" v-model.number="expenseInstallmentNumber"
+                                            type="number" min="1" :max="expenseInstallmentTotal || 12" />
+                                    </div>
+                                    <div class="installment-separator">/</div>
+                                    <div class="input-group">
+                                        <label for="expense-installment-total">Total:</label>
+                                        <input id="expense-installment-total" v-model.number="expenseInstallmentTotal"
+                                            type="number" min="1" max="99" />
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -128,12 +132,8 @@
         </Transition>
 
         <!-- Toast de erro -->
-        <ToastNotification
-            :show="showErrorToast"
-            :message="errorMessage"
-            type="error"
-            @close="showErrorToast = false"
-        />
+        <ToastNotification :show="showErrorToast" :message="errorMessage" type="error"
+            @close="showErrorToast = false" />
     </Teleport>
 </template>
 
@@ -182,7 +182,7 @@ const errorMessage = ref('')
 
 // Verifica se tem compartilhamento ativo
 const hasActiveSharing = computed(() => {
-    return budgetStore.shareInvites.some(inv => 
+    return budgetStore.shareInvites.some(inv =>
         inv.status === 'accepted' &&
         (inv.fromUserId === authStore.userId || inv.toUserEmail?.toLowerCase() === authStore.userEmail?.toLowerCase())
     )
@@ -192,7 +192,7 @@ const hasActiveSharing = computed(() => {
 const partnerEmail = computed(() => {
     const acceptedInvite = budgetStore.shareInvites.find(inv => inv.status === 'accepted')
     if (!acceptedInvite) return ''
-    
+
     if (acceptedInvite.fromUserId === authStore.userId) {
         return acceptedInvite.toUserEmail
     }
@@ -471,18 +471,34 @@ const handleExpenseSubmit = async () => {
 .modal-content {
     background: white;
     border-radius: 12px;
-    padding: 24px;
     width: 90%;
     max-width: 400px;
-    max-height: 85vh;
-    overflow-y: auto;
+    max-height: 85dvh;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
-h2 {
-    margin: 0 0 20px 0;
+.modal-content form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+.modal-content h2 {
+    margin: 0;
+    padding: 20px 24px 16px;
     font-size: 24px;
     color: #333;
+    flex-shrink: 0;
+}
+
+.form-scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 24px 16px;
 }
 
 .form-group {
@@ -568,7 +584,10 @@ input:focus {
 .form-actions {
     display: flex;
     gap: 12px;
-    margin-top: 24px;
+    padding: 16px 24px;
+    background: white;
+    border-top: 1px solid #eee;
+    flex-shrink: 0;
 }
 
 button {

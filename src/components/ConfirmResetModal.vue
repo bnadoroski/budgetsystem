@@ -9,7 +9,7 @@
 
                     <div class="modal-body">
                         <div class="warning-icon">⚠️</div>
-                        
+
                         <p class="warning-text">
                             Tem certeza que deseja resetar o budget <strong>{{ budgetName }}</strong>?
                         </p>
@@ -33,6 +33,13 @@
                             O histórico será salvo e você poderá consultá-lo depois.
                         </p>
 
+                        <!-- Aviso de compartilhamento -->
+                        <div v-if="isShared" class="shared-warning">
+                            <span class="shared-icon">👥</span>
+                            <p>Este budget é <strong>compartilhado</strong>. O reset também será aplicado para o(a)
+                                parceiro(a).</p>
+                        </div>
+
                         <div class="button-group">
                             <button class="btn btn-cancel" @click="$emit('close')">
                                 Cancelar
@@ -54,6 +61,7 @@ defineProps<{
     budgetName: string
     budgetTotal: number
     budgetSpent: number
+    isShared?: boolean
 }>()
 
 defineEmits<{
@@ -91,6 +99,7 @@ defineEmits<{
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -173,8 +182,36 @@ defineEmits<{
 .info-text {
     font-size: 13px;
     color: #666;
-    margin: 0 0 24px 0;
+    margin: 0 0 16px 0;
     line-height: 1.4;
+}
+
+/* Aviso de compartilhamento */
+.shared-warning {
+    background: linear-gradient(135deg, #FCE4EC 0%, #F3E5F5 100%);
+    border: 1px solid #F8BBD9;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.shared-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.shared-warning p {
+    margin: 0;
+    font-size: 13px;
+    color: #7B1FA2;
+    line-height: 1.5;
+}
+
+.shared-warning strong {
+    color: #AD1457;
 }
 
 .button-group {

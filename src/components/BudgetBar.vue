@@ -1,5 +1,5 @@
 <template>
-    <div class="budget-bar-container" :class="{ 'is-dragging': isDragging }">
+    <div class="budget-bar-container" :class="{ 'is-dragging': isDragging, 'newly-shared': isNewlyShared }">
         <div class="budget-bar" @click="handleClick">
             <div class="budget-label" :class="{ 'overbudget': percentage >= 100 }" draggable="true"
                 @dragstart="handleDragStart" @dragend="handleDragEnd" @touchstart.stop @touchmove.stop @touchend.stop>{{
@@ -98,6 +98,7 @@ const longPress = useLongPress(() => {
 }, 500)
 
 const percentage = computed(() => budgetStore.percentage(props.budget))
+const isNewlyShared = computed(() => budgetStore.isNewlyShared(props.budget.id))
 
 const handleClick = () => {
     if (!longPress.isLongPress.value) {
@@ -353,6 +354,24 @@ const handleDragEnd = () => {
     .budget-value-inside,
     .budget-value-outside {
         font-size: 13px;
+    }
+}
+
+/* Animação de borda piscando para budgets recém-compartilhados */
+.budget-bar-container.newly-shared .budget-progress {
+    animation: pulse-border 1s ease-in-out infinite;
+    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.6);
+}
+
+@keyframes pulse-border {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.6);
+    }
+
+    50% {
+        box-shadow: 0 0 0 6px rgba(76, 175, 80, 0.3), 0 0 15px rgba(76, 175, 80, 0.4);
     }
 }
 </style>

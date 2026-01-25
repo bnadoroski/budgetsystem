@@ -49,6 +49,7 @@ export const useBudgetStore = defineStore('budget', () => {
     const currency = ref<string>('BRL')
     const darkMode = ref<boolean>(false)
     const resetDay = ref<number>(5) // Dia do mês para reset (padrão: dia 5)
+    const newlySharedBudgetIds = ref<Set<string>>(new Set()) // IDs de budgets recém-compartilhados para efeito visual
     let unsubscribe: Unsubscribe | null = null
     let groupsUnsubscribe: Unsubscribe | null = null
     let sharedUnsubscribe: Unsubscribe | null = null
@@ -278,9 +279,31 @@ export const useBudgetStore = defineStore('budget', () => {
                 if (budget && budget.sharedWith && budget.sharedWith.length > 0) {
                     try {
                         const sharedBudgetRef = doc(db, 'sharedBudgets', id)
-                        await updateDoc(sharedBudgetRef, updates)
+                        // Usa setDoc com merge para criar se não existir
+                        await setDoc(sharedBudgetRef, {
+                            ...budget,
+                            ...updates,
+                            id: id
+                        }, { merge: true })
+                        console.log('✅ Budget compartilhado sincronizado:', id)
                     } catch (sharedError) {
                         console.error('Erro ao sincronizar sharedBudgets:', sharedError)
+                    }
+                }
+
+                // Se EU não sou o dono original (é um budget que recebi compartilhado),
+                // também atualiza no documento do dono
+                if (budget && budget.ownerId && budget.ownerId !== authStore.userId) {
+                    try {
+                        const ownerBudgetRef = doc(db, 'users', budget.ownerId, 'budgets', id)
+                        await updateDoc(ownerBudgetRef, updates)
+
+                        // Também atualiza na coleção sharedBudgets
+                        const sharedBudgetRef = doc(db, 'sharedBudgets', id)
+                        await setDoc(sharedBudgetRef, updates, { merge: true })
+                        console.log('✅ Budget do owner sincronizado:', id)
+                    } catch (ownerError) {
+                        console.error('Erro ao sincronizar com owner:', ownerError)
                     }
                 }
             } catch (error) {
@@ -315,6 +338,44 @@ export const useBudgetStore = defineStore('budget', () => {
 
         if (authStore.userId) {
             try {
+                // Busca o budget para verificar se é compartilhado
+                const budgetToDelete = budgets.value.find(b => b.id === id)
+
+                // Se o budget foi compartilhado com o usuário (não é o owner original)
+                if (budgetToDelete && budgetToDelete.ownerId && budgetToDelete.ownerId !== authStore.userId) {
+                    // Remove o usuário atual do sharedWith do budget original do owner
+                    const ownerBudgetRef = doc(db, 'users', budgetToDelete.ownerId, 'budgets', id)
+                    const ownerBudgetSnap = await getDoc(ownerBudgetRef)
+
+                    if (ownerBudgetSnap.exists()) {
+                        const currentSharedWith = ownerBudgetSnap.data().sharedWith || []
+                        const newSharedWith = currentSharedWith.filter((uid: string) => uid !== authStore.userId)
+
+                        await updateDoc(ownerBudgetRef, {
+                            sharedWith: newSharedWith
+                        })
+                        console.log('✅ Removido do sharedWith do budget original do owner')
+                    }
+
+                    // Também remove do sharedBudgets
+                    const sharedBudgetRef = doc(db, 'sharedBudgets', id)
+                    const sharedBudgetSnap = await getDoc(sharedBudgetRef)
+
+                    if (sharedBudgetSnap.exists()) {
+                        const currentSharedWith = sharedBudgetSnap.data().sharedWith || []
+                        const newSharedWith = currentSharedWith.filter((uid: string) => uid !== authStore.userId)
+
+                        if (newSharedWith.length > 0) {
+                            await updateDoc(sharedBudgetRef, {
+                                sharedWith: newSharedWith
+                            })
+                        } else {
+                            // Se não há mais ninguém compartilhando, deleta o documento
+                            await deleteDoc(sharedBudgetRef)
+                        }
+                    }
+                }
+
                 const budgetRef = doc(db, 'users', authStore.userId, 'budgets', id)
                 await deleteDoc(budgetRef)
                 // O listener atualizará automaticamente
@@ -1287,6 +1348,17 @@ export const useBudgetStore = defineStore('budget', () => {
                 console.warn('Erro ao enviar notificação:', notifError)
             }
 
+            // Marca os budgets como recém-compartilhados para efeito visual
+            invite.budgetIds.forEach(budgetId => {
+                newlySharedBudgetIds.value.add(budgetId)
+            })
+            // Remove o efeito visual após 5 segundos
+            setTimeout(() => {
+                invite.budgetIds.forEach(budgetId => {
+                    newlySharedBudgetIds.value.delete(budgetId)
+                })
+            }, 5000)
+
             // Recarrega os budgets para mostrar os compartilhados
             if (authStore.userId) {
                 await loadBudgets(authStore.userId)
@@ -1367,6 +1439,33 @@ export const useBudgetStore = defineStore('budget', () => {
             }
         } catch (error) {
             console.error('Erro ao marcar remetente como notificado:', error)
+        }
+    }
+
+    // Cancelar convite pendente (quem enviou pode cancelar)
+    const cancelShareInvite = async (inviteId: string) => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const invite = shareInvites.value.find(i => i.id === inviteId)
+            if (!invite) throw new Error('Convite não encontrado')
+
+            // Verificar se o usuário é o remetente do convite
+            if (invite.fromUserId !== authStore.userId) {
+                throw new Error('Você não tem permissão para cancelar este convite')
+            }
+
+            // Deletar o convite
+            await deleteDoc(doc(db, 'shareInvites', inviteId))
+
+            // Atualizar local
+            shareInvites.value = shareInvites.value.filter(i => i.id !== inviteId)
+
+            console.log('Convite cancelado com sucesso')
+        } catch (error) {
+            console.error('Erro ao cancelar convite:', error)
+            throw error
         }
     }
 
@@ -2215,10 +2314,33 @@ export const useBudgetStore = defineStore('budget', () => {
         }
     }
 
-    // Envia notificação quando há despesas pendentes há mais de 1 dia
+    // Envia notificação quando há despesas pendentes (mais de 1 pendente ou há mais de 1 dia)
     const sendPendingExpensesNotification = async () => {
         if (!Capacitor.isNativePlatform()) return
 
+        const pendingCount = pendingExpenses.value.length
+
+        // Notifica se há mais de 1 despesa pendente
+        if (pendingCount > 1) {
+            try {
+                const totalAmount = pendingExpenses.value.reduce((sum, e) => sum + e.amount, 0)
+
+                await FCM.showLocalNotification({
+                    title: 'Despesas Pendentes',
+                    body: `Você tem ${pendingCount} despesas pendentes totalizando R$ ${totalAmount.toFixed(2)}`,
+                    data: {
+                        type: 'pending_expenses',
+                        count: pendingCount.toString(),
+                        total: totalAmount.toString()
+                    }
+                })
+                return // Já notificou, não precisa verificar despesas antigas
+            } catch (error) {
+                console.error('Erro ao enviar notificação de despesas pendentes:', error)
+            }
+        }
+
+        // Também notifica se há despesas antigas (mais de 1 dia)
         const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000)
         const oldPendingExpenses = pendingExpenses.value.filter(e => e.timestamp < oneDayAgo)
 
@@ -2270,22 +2392,6 @@ export const useBudgetStore = defineStore('budget', () => {
             }
         } catch (error) {
             console.error('Erro ao enviar notificação de inatividade:', error)
-        }
-    }
-
-    // Atualiza contador de badge baseado em despesas pendentes
-    const updateBadgeCount = async () => {
-        if (!Capacitor.isNativePlatform()) return
-
-        try {
-            const count = pendingExpenses.value.length
-            if (count > 0) {
-                await Badge.setBadge({ count })
-            } else {
-                await Badge.clearBadge()
-            }
-        } catch (error) {
-            console.error('Erro ao atualizar badge:', error)
         }
     }
 
@@ -2365,12 +2471,15 @@ export const useBudgetStore = defineStore('budget', () => {
         startSharedBudgetsListener,
         shareBudgetWithUser,
         unshareBudget,
+        newlySharedBudgetIds,
+        isNewlyShared: (budgetId: string) => newlySharedBudgetIds.value.has(budgetId),
         // Share Invites
         startInvitesListener,
         stopInvitesListener,
         sendShareInvite,
         acceptShareInvite,
         rejectShareInvite,
+        cancelShareInvite,
         markInviteAsViewed,
         markInviteSenderNotified,
         removeSharing,

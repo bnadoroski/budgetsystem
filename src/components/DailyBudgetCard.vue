@@ -1,7 +1,7 @@
 <template>
-    <div v-if="totalBudgetLimit > 0" class="daily-budget-card" :class="[statusClass, { 'minimized': isMinimized }]"
-        :style="cardStyle" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd"
-        @click="handleClick">
+    <div v-if="totalBudgetLimit > 0" class="daily-budget-card"
+        :class="[statusClass, { 'minimized': isMinimized, 'newly-shared': hasNewlySharedBudgets }]" :style="cardStyle"
+        @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd" @click="handleClick">
         <template v-if="!isMinimized">
             <div class="drag-handle">
                 <div class="drag-indicator"></div>
@@ -81,6 +81,11 @@ const dailyAvailable = computed(() => {
 const healthPercentage = computed(() => {
     if (totalBudgetLimit.value === 0) return 100
     return (remainingSalary.value / totalBudgetLimit.value) * 100
+})
+
+// Verifica se há budgets recém-compartilhados
+const hasNewlySharedBudgets = computed(() => {
+    return budgetStore.newlySharedBudgetIds.size > 0
 })
 
 // Define a classe de status baseado na porcentagem
@@ -413,5 +418,26 @@ body.dark-mode .drag-indicator {
 
 .minimized-icon {
     animation: pulse 2s ease-in-out infinite;
+}
+
+/* Animação de borda piscando quando há budgets recém-compartilhados */
+.daily-budget-card.newly-shared {
+    animation: pulse-border-card 1s ease-in-out infinite;
+}
+
+.daily-budget-card.newly-shared.minimized {
+    animation: pulse-border-card 1s ease-in-out infinite, minimize 0.3s ease-out;
+}
+
+@keyframes pulse-border-card {
+
+    0%,
+    100% {
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(76, 175, 80, 0.6);
+    }
+
+    50% {
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1), 0 0 0 6px rgba(76, 175, 80, 0.3), 0 0 15px rgba(76, 175, 80, 0.4);
+    }
 }
 </style>

@@ -96,7 +96,7 @@ const debugInfo = ref('')
 const editingBudgetId = ref<string | undefined>(undefined)
 const editingBudgetData = ref<any>(null)
 const permissionDenied = ref(false)
-const resetBudgetData = ref<{ id: string, name: string, total: number, spent: number } | null>(null)
+const resetBudgetData = ref<{ id: string, name: string, total: number, spent: number, isShared: boolean } | null>(null)
 const deleteBudgetData = ref<{ id: string, name: string, total: number, spent: number, transactionCount: number } | null>(null)
 const transactionsBudgetData = ref<{ id: string, name: string } | null>(null)
 
@@ -275,11 +275,15 @@ const handleDeleteConfirmed = async () => {
 const handleConfirmReset = (budgetId: string) => {
   const budget = budgetStore.budgets.find(b => b.id === budgetId)
   if (budget) {
+    // Verifica se é um budget compartilhado
+    const isShared = (budget.sharedWith && budget.sharedWith.length > 0) ||
+      (budget.ownerId && budget.ownerId !== authStore.userId)
     resetBudgetData.value = {
       id: budget.id,
       name: budget.name,
       total: budget.totalValue,
-      spent: budget.spentValue
+      spent: budget.spentValue,
+      isShared: !!isShared
     }
     showConfirmResetModal.value = true
   }
@@ -869,14 +873,20 @@ onMounted(async () => {
       await budgetStore.loadBudgets(authStore.user.uid)
       await budgetStore.loadGroups(authStore.user.uid)
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
+    } else if (authStore.isOffline && authStore.hasCachedUser) {
+      // Offline mas tem dados em cache - carrega do cache sem forçar login
+      console.log('📵 Modo offline - carregando dados do cache')
+      debugInfo.value = '📵 Modo offline'
+      // Os dados já estão no localStorage e serão carregados automaticamente pelo store
     } else {
-      // Não está autenticado - limpa dados locais e grupos fantasmas
+      // Não está autenticado e está online - limpa dados locais e grupos fantasmas
       // IMPORTANTE: NÃO limpa pendingExpenses - elas devem sobreviver ao logout
       // pois são capturadas pelo NotificationListener mesmo com app fechado
       localStorage.removeItem('budgets')
       localStorage.removeItem('budgetGroups')
       // localStorage.removeItem('pendingExpenses') - REMOVIDO para manter despesas
       budgetStore.clearLocalData() // Limpa grupos em memória também (mas não pendingExpenses)
+      authStore.clearCachedUser() // Limpa cache de usuário ao forçar logout
 
       // Abre modal de login automaticamente
       setTimeout(() => {
@@ -897,11 +907,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- Tela de Boas-vindas quando não logado -->
-  <WelcomeScreen v-if="!authStore.isAuthenticated && !authStore.loading" @login="handleWelcomeLogin" />
+  <!-- Tela de Boas-vindas quando não logado (e online sem cache) -->
+  <WelcomeScreen
+    v-if="!authStore.isAuthenticated && !authStore.loading && !(authStore.isOffline && authStore.hasCachedUser)"
+    @login="handleWelcomeLogin" />
 
   <div v-else class="app-container" @touchstart="handleTouchStart" @touchmove.passive="handleTouchMove"
     @touchend="handleTouchEnd">
+    <!-- Offline Banner -->
+    <div v-if="authStore.isOffline" class="offline-banner">
+      <span class="offline-icon">📵</span>
+      <span>Modo offline - dados do cache</span>
+    </div>
+
     <!-- Loading State -->
     <div v-if="authStore.loading" class="loading-screen">
       <div class="loading-spinner"></div>
@@ -1232,7 +1250,7 @@ onUnmounted(() => {
     <InviteResponseModal :show="showInviteResponseModal" :isAccepted="inviteResponseData.isAccepted"
       :email="inviteResponseData.email" @close="showInviteResponseModal = false" />
     <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" :budget-name="resetBudgetData.name"
-      :budget-total="resetBudgetData.total" :budget-spent="resetBudgetData.spent"
+      :budget-total="resetBudgetData.total" :budget-spent="resetBudgetData.spent" :is-shared="resetBudgetData.isShared"
       @close="showConfirmResetModal = false; resetBudgetData = null" @confirm="handleResetConfirmed" />
     <ConfirmDeleteModal v-if="deleteBudgetData" :show="showConfirmDeleteModal" :budget-name="deleteBudgetData.name"
       :budget-total="deleteBudgetData.total" :budget-spent="deleteBudgetData.spent"
@@ -1255,12 +1273,35 @@ onUnmounted(() => {
 .app-container {
   max-width: 600px;
   margin: 0 auto;
-  min-height: 100vh;
+  min-height: 100dvh;
   background-color: #f5f5f5;
   position: relative;
   padding-bottom: calc(80px + env(safe-area-inset-bottom));
   padding-top: env(safe-area-inset-top);
   overflow-y: auto;
+}
+
+/* Offline Banner */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  color: white;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.offline-icon {
+  font-size: 16px;
 }
 
 .app-container::before {
@@ -1339,7 +1380,7 @@ onUnmounted(() => {
   z-index: 1;
   padding-bottom: 160px;
   overflow-y: auto;
-  max-height: calc(100vh - env(safe-area-inset-top) - 80px);
+  max-height: calc(100dvh - env(safe-area-inset-top) - 80px);
 }
 
 .empty-state {

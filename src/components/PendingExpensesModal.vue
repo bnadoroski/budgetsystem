@@ -3,64 +3,81 @@
         <Transition name="modal">
             <div v-if="show && pendingExpenses.length > 0" class="modal-overlay" @click="close">
                 <div class="modal-content" @click.stop>
-                    <h2>💰 Despesas Pendentes ({{ pendingExpenses.length }})</h2>
+                    <div class="modal-header-fixed">
+                        <h2>💰 Despesas Pendentes ({{ pendingExpenses.length }})</h2>
+                    </div>
 
-                    <div class="expenses-list">
-                        <div v-for="expense in pendingExpenses" :key="expense.id" class="expense-card"
-                            :class="{ 'swiping': swipingId === expense.id }"
-                            :style="swipingId === expense.id ? { transform: `translateX(${swipeX}px)` } : {}"
-                            @touchstart="handleTouchStart($event, expense)" @touchmove="handleTouchMove($event)"
-                            @touchend="handleTouchEnd(expense)" @mousedown="handleMouseDown($event, expense)">
-                            <!-- Ação de fundo quando arrasta -->
-                            <div class="swipe-action-left" v-if="swipeX < -50">
-                                <span>❌ Rejeitar</span>
-                            </div>
-                            <div class="swipe-action-right" v-if="swipeX > 50">
-                                <span>✅ Aprovar</span>
-                            </div>
-
-                            <div class="expense-content">
-                                <div class="expense-header">
-                                    <span class="expense-bank">🏦 {{ expense.bank }}</span>
-                                    <span class="expense-amount">{{ formatCurrency(expense.amount) }}</span>
+                    <div class="modal-body-scroll">
+                        <div class="expenses-list">
+                            <div v-for="expense in pendingExpenses" :key="expense.id" class="expense-card"
+                                :class="{ 'swiping': swipingId === expense.id, 'selecting': selectionMode }"
+                                :style="swipingId === expense.id ? { transform: `translateX(${swipeX}px)` } : {}"
+                                @touchstart="handleTouchStart($event, expense)" @touchmove="handleTouchMove($event)"
+                                @touchend="handleTouchEnd(expense)" @mousedown="handleMouseDown($event, expense)">
+                                <!-- Checkbox para seleção múltipla -->
+                                <div v-if="selectionMode" class="checkbox-container"
+                                    @click.stop="toggleSelection(expense.id)">
+                                    <input type="checkbox" :checked="selectedExpenses.has(expense.id)" @click.stop />
+                                </div>
+                                <!-- Ação de fundo quando arrasta -->
+                                <div class="swipe-action-left" v-if="swipeX < -50">
+                                    <span class="reject-x">✕</span>
+                                </div>
+                                <div class="swipe-action-right" v-if="swipeX > 50">
+                                    <span>✓</span>
                                 </div>
 
-                                <p class="expense-description">{{ expense.description }}</p>
+                                <div class="expense-content">
+                                    <div class="expense-header">
+                                        <span class="expense-bank">🏦 {{ expense.bank }}</span>
+                                        <span class="expense-amount" :class="{ 'income': expense.amount < 0 }">{{
+                                            formatCurrency(Math.abs(expense.amount)) }}</span>
+                                    </div>
 
-                                <div v-if="expense.merchantName" class="expense-merchant">
-                                    <span class="merchant-icon">🏪</span>
-                                    <span class="merchant-name">{{ expense.merchantName }}</span>
-                                </div>
+                                    <p class="expense-description">{{ expense.description }}</p>
 
-                                <div v-if="expense.installmentTotal" class="expense-installment">
-                                    <span class="installment-icon">💳</span>
-                                    <span class="installment-text">Parcela {{ expense.installmentNumber }}/{{
-                                        expense.installmentTotal }}</span>
-                                </div>
+                                    <div v-if="expense.merchantName" class="expense-merchant">
+                                        <span class="merchant-icon">🏪</span>
+                                        <span class="merchant-name">{{ expense.merchantName }}</span>
+                                    </div>
 
-                                <!-- <div class="expense-footer">
+                                    <div v-if="expense.installmentTotal" class="expense-installment">
+                                        <span class="installment-icon">💳</span>
+                                        <span class="installment-text">Parcela {{ expense.installmentNumber }}/{{
+                                            expense.installmentTotal }}</span>
+                                    </div>
+
+                                    <!-- <div class="expense-footer">
                                     <span class="expense-category">🏷️ {{ expense.category }}</span>
                                     <span class="expense-time">{{ formatTime(expense.timestamp) }}</span>
                                 </div> -->
 
-                                <div class="expense-suggestion">
-                                    <span class="suggestion-label">Sugerido:</span>
-                                    <span class="suggestion-budget">{{ suggestedBudgets[expense.id] || 'Carregando...'
-                                        }}</span>
-                                    <button class="btn-choose-budget" @click="editExpense(expense)"
-                                        title="Escolher budget">
-                                        ✏️
-                                    </button>
-                                </div>
+                                    <div class="expense-suggestion">
+                                        <span class="suggestion-label">Sugerido:</span>
+                                        <span class="suggestion-budget">{{ suggestedBudgets[expense.id] ||
+                                            'Carregando...'
+                                            }}</span>
+                                        <button class="btn-choose-budget" @click="editExpense(expense)"
+                                            title="Escolher budget">
+                                            ✏️
+                                        </button>
+                                    </div>
 
-                                <div class="swipe-hint">
-                                    👉 Arraste → para aprovar | ← para rejeitar
+                                    <div class="swipe-hint">
+                                        👉 Arraste → para aprovar | ← para rejeitar
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <button class="btn-close" @click="close">Fechar</button>
+                    <div class="modal-footer-fixed">
+                        <button class="btn-clear" @click="handleClearButton">
+                            {{ selectionMode ? (selectedExpenses.size > 0 ? `Rejeitar (${selectedExpenses.size})` :
+                                'Rejeitar Todos') : 'Limpar' }}
+                        </button>
+                        <button class="btn-close" @click="close">Fechar</button>
+                    </div>
                 </div>
 
                 <!-- Modal de edição de budget -->
@@ -144,6 +161,7 @@
 import { ref, computed, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import ConfirmModal from './ConfirmModal.vue'
+import { useLongPress } from '@/composables/useLongPress'
 
 interface PendingExpense {
     id: string
@@ -169,6 +187,14 @@ const emit = defineEmits<{
 const budgetStore = useBudgetStore()
 const editingExpense = ref<PendingExpense | null>(null)
 const editingDescription = ref<string>('')
+
+// Estado para modo de seleção múltipla
+const selectionMode = ref(false)
+const selectedExpenses = ref<Set<string>>(new Set())
+
+// Long press para ativar seleção
+let longPressTimer: ReturnType<typeof setTimeout> | null = null
+const longPressThreshold = 500
 const editingHasInstallments = ref(false)
 const editingInstallmentNumber = ref<number | undefined>(undefined)
 const editingInstallmentTotal = ref<number | undefined>(undefined)
@@ -282,6 +308,16 @@ const formatTime = (timestamp: number) => {
 // Touch handlers para swipe
 const handleTouchStart = (e: TouchEvent, expense: PendingExpense) => {
     if (!e.touches[0]) return
+
+    // Se em modo de seleção, não fazer swipe
+    if (selectionMode.value) {
+        toggleSelection(expense.id)
+        return
+    }
+
+    // Iniciar long press timer
+    handleLongPressStart(expense)
+
     swipingId.value = expense.id
     startX.value = e.touches[0].clientX
     isDragging.value = true
@@ -289,11 +325,28 @@ const handleTouchStart = (e: TouchEvent, expense: PendingExpense) => {
 
 const handleTouchMove = (e: TouchEvent) => {
     if (!isDragging.value || !e.touches[0]) return
+
+    // Se moveu, cancelar long press
+    const moveX = Math.abs(e.touches[0].clientX - startX.value)
+    if (moveX > 10) {
+        handleLongPressEnd()
+    }
+
     swipeX.value = e.touches[0].clientX - startX.value
 }
 
 const handleTouchEnd = (expense: PendingExpense) => {
+    handleLongPressEnd()
+
     if (!isDragging.value) return
+
+    // Se em modo de seleção, não processar swipe
+    if (selectionMode.value) {
+        swipeX.value = 0
+        swipingId.value = null
+        isDragging.value = false
+        return
+    }
 
     if (swipeX.value > 100) {
         // Arraste para direita = aprovar
@@ -445,7 +498,62 @@ const cancelEdit = () => {
     editingInstallmentTotal.value = undefined
 }
 
+// Funções de seleção múltipla
+const toggleSelection = (expenseId: string) => {
+    if (selectedExpenses.value.has(expenseId)) {
+        selectedExpenses.value.delete(expenseId)
+    } else {
+        selectedExpenses.value.add(expenseId)
+    }
+    // Se não há mais seleções, sair do modo de seleção
+    if (selectedExpenses.value.size === 0 && selectionMode.value) {
+        selectionMode.value = false
+    }
+}
+
+const handleClearButton = () => {
+    if (!selectionMode.value) {
+        // Primeiro clique: entrar no modo de seleção e selecionar todos
+        selectionMode.value = true
+        selectedExpenses.value = new Set(pendingExpenses.value.map(e => e.id))
+    } else {
+        // Segundo clique: rejeitar todos os selecionados
+        if (selectedExpenses.value.size > 0) {
+            selectedExpenses.value.forEach(id => {
+                budgetStore.removePendingExpense(id)
+            })
+            selectedExpenses.value.clear()
+            selectionMode.value = false
+        }
+    }
+}
+
+const handleLongPressStart = (expense: PendingExpense) => {
+    longPressTimer = setTimeout(() => {
+        // Ativar modo de seleção com este item selecionado
+        selectionMode.value = true
+        selectedExpenses.value = new Set([expense.id])
+    }, longPressThreshold)
+}
+
+const handleLongPressEnd = () => {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer)
+        longPressTimer = null
+    }
+}
+
+// Reset do modo de seleção quando fechar modal
+watch(() => props.show, (newShow) => {
+    if (!newShow) {
+        selectionMode.value = false
+        selectedExpenses.value.clear()
+    }
+})
+
 const close = () => {
+    selectionMode.value = false
+    selectedExpenses.value.clear()
     emit('close')
 }
 </script>
@@ -474,22 +582,34 @@ const close = () => {
     border-radius: 16px;
     width: 100%;
     max-width: 500px;
-    max-height: 90vh;
-    overflow-y: auto;
-    padding: 24px;
+    max-height: 90dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
-h2 {
-    margin: 0 0 20px 0;
+.modal-header-fixed {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid #eee;
+    flex-shrink: 0;
+}
+
+.modal-header-fixed h2 {
+    margin: 0;
     font-size: 24px;
     color: #333;
+}
+
+.modal-body-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 24px;
 }
 
 .expenses-list {
     display: flex;
     flex-direction: column;
     gap: 16px;
-    margin-bottom: 20px;
 }
 
 .expense-card {
@@ -522,7 +642,7 @@ h2 {
     justify-content: center;
     font-weight: bold;
     color: white;
-    font-size: 14px;
+    font-size: 32px;
 }
 
 .swipe-action-left {
@@ -558,6 +678,10 @@ h2 {
     font-size: 20px;
     font-weight: bold;
     color: #E91E63;
+}
+
+.expense-amount.income {
+    color: #4CAF50;
 }
 
 .expense-description {
@@ -657,8 +781,35 @@ h2 {
     margin-top: 8px;
 }
 
+/* Footer fixo com botões */
+.modal-footer-fixed {
+    padding: 16px 24px;
+    background: white;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.btn-clear {
+    flex: 1;
+    padding: 12px;
+    background: #ff5252;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-clear:hover {
+    background: #f44336;
+}
+
 .btn-close {
-    width: 100%;
+    flex: 1;
     padding: 12px;
     background: #666;
     color: white;
@@ -671,6 +822,32 @@ h2 {
 
 .btn-close:hover {
     background: #555;
+}
+
+/* Checkbox container */
+.checkbox-container {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+}
+
+.checkbox-container input[type="checkbox"] {
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    accent-color: #4CAF50;
+}
+
+.expense-card.selecting {
+    padding-left: 48px;
+}
+
+/* X vermelho para rejeitar */
+.reject-x {
+    font-size: 32px;
+    font-weight: bold;
 }
 
 /* Modal de edição */

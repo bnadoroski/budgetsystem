@@ -87,6 +87,26 @@
                                 </button>
                             </div>
                         </div>
+
+                        <!-- Convites pendentes enviados -->
+                        <div v-if="pendingSentInvites.length > 0" class="pending-invites-section">
+                            <h3>Convites pendentes</h3>
+                            <div v-for="invite in pendingSentInvites" :key="invite.id" class="pending-invite-item">
+                                <div class="invite-info">
+                                    <span class="invite-email">{{ invite.toUserEmail }}</span>
+                                    <span class="invite-count">{{ invite.budgetIds.length }} budget{{
+                                        invite.budgetIds.length > 1 ? 's' : '' }}</span>
+                                </div>
+                                <button class="cancel-invite-button" @click="handleCancelInvite(invite.id)"
+                                    title="Cancelar convite">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -129,6 +149,13 @@ const availableBudgets = computed(() => {
 
 const sharedBudgets = computed(() => {
     return budgetStore.budgets.filter(b => b.sharedWith && b.sharedWith.length > 0)
+})
+
+// Convites pendentes enviados pelo usuário atual
+const pendingSentInvites = computed(() => {
+    return budgetStore.shareInvites.filter(
+        invite => invite.fromUserId === authStore.userId && invite.status === 'pending'
+    )
 })
 
 const allSelected = computed(() => {
@@ -195,6 +222,16 @@ const handleShare = async () => {
 const handleUnshare = async (budgetId: string) => {
     budgetToUnshare.value = budgetId
     showUnshareConfirm.value = true
+}
+
+const handleCancelInvite = async (inviteId: string) => {
+    try {
+        await budgetStore.cancelShareInvite(inviteId)
+    } catch (error: any) {
+        console.error('Erro ao cancelar convite:', error)
+        shareError.value = error.message || 'Erro ao cancelar convite'
+        setTimeout(() => shareError.value = '', 3000)
+    }
 }
 
 const confirmUnshare = async () => {
@@ -493,6 +530,64 @@ const cancelUnshare = () => {
     padding: 30px;
     color: #999;
     font-size: 14px;
+}
+
+/* Pending invites section */
+.pending-invites-section {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #e0e0e0;
+}
+
+.pending-invites-section h3 {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.pending-invite-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: #fff3e0;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #ffcc80;
+}
+
+.invite-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.invite-email {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+}
+
+.invite-count {
+    font-size: 12px;
+    color: #f57c00;
+}
+
+.cancel-invite-button {
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    color: #e53935;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s;
+}
+
+.cancel-invite-button:hover {
+    background: #ffebee;
 }
 
 .fade-enter-active,

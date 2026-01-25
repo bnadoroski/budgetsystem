@@ -22,7 +22,7 @@
                         <!-- Share Section -->
                         <div class="action-section share-section">
                             <h3>Compartilhamento</h3>
-                            
+
                             <!-- Status do compartilhamento -->
                             <div v-if="shareStatus.type !== 'none'" class="share-status-box" :class="shareStatus.type">
                                 <div class="status-icon">
@@ -34,14 +34,20 @@
                                     <p class="status-title">{{ shareStatus.title }}</p>
                                     <p class="status-email">{{ shareStatus.email }}</p>
                                 </div>
-                                <button v-if="shareStatus.type === 'rejected'" class="btn-clear-status" @click="clearRejectedInvite">
+                                <button v-if="shareStatus.type === 'rejected'" class="btn-clear-status"
+                                    @click="clearRejectedInvite">
                                     Entendi
+                                </button>
+                                <button v-if="shareStatus.type === 'waiting'" class="btn-cancel-invite"
+                                    @click="handleCancelInvite">
+                                    Cancelar
                                 </button>
                             </div>
 
                             <!-- Campo de email para novo convite (só mostra se não tem compartilhamento ativo) -->
                             <div v-if="!hasActiveSharing && shareStatus.type !== 'waiting'" class="share-input-section">
-                                <p class="section-description">Compartilhe budgets e valor total com seu cônjuge/parceiro(a)</p>
+                                <p class="section-description">Compartilhe budgets e valor total com seu
+                                    cônjuge/parceiro(a)</p>
                                 <div class="share-input-group">
                                     <input v-model="shareEmail" type="email" placeholder="email@exemplo.com"
                                         class="share-input" />
@@ -67,10 +73,12 @@
                             <!-- Convites pendentes que EU RECEBI -->
                             <div v-if="receivedPendingInvites.length > 0" class="pending-invites">
                                 <p class="shared-label">Convites Recebidos:</p>
-                                <div v-for="invite in receivedPendingInvites" :key="invite.id" class="pending-invite received">
+                                <div v-for="invite in receivedPendingInvites" :key="invite.id"
+                                    class="pending-invite received">
                                     <div class="invite-info">
                                         <span class="invite-from">{{ invite.fromUserEmail }}</span>
-                                        <span class="invite-count">{{ invite.budgetIds.length }} budget{{ invite.budgetIds.length > 1 ? 's' : '' }}</span>
+                                        <span class="invite-count">{{ invite.budgetIds.length }} budget{{
+                                            invite.budgetIds.length > 1 ? 's' : '' }}</span>
                                     </div>
                                     <button class="btn-review" @click="handleReviewInvite(invite)">
                                         Ver Convite
@@ -81,7 +89,8 @@
                             <!-- Opção para desfazer compartilhamento ativo -->
                             <div v-if="hasActiveSharing" class="active-share-actions">
                                 <button class="btn-remove-share" @click="handleRemoveShare(shareStatus.email)">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                        fill="none" stroke="currentColor" stroke-width="2">
                                         <line x1="18" y1="6" x2="6" y2="18"></line>
                                         <line x1="6" y1="6" x2="18" y2="18"></line>
                                     </svg>
@@ -151,16 +160,10 @@
         </Transition>
 
         <!-- Modal de confirmação para remover compartilhamento -->
-        <ConfirmModal
-            :show="showRemoveShareConfirm"
-            title="Remover Compartilhamento"
+        <ConfirmModal :show="showRemoveShareConfirm" title="Remover Compartilhamento"
             :message="`Deseja <strong>remover o compartilhamento</strong> com <strong>${emailToRemove}</strong>?`"
-            type="warning"
-            confirm-text="Remover"
-            confirm-icon="🔗"
-            @confirm="confirmRemoveShare"
-            @cancel="cancelRemoveShare"
-        />
+            type="warning" confirm-text="Remover" confirm-icon="🔗" @confirm="confirmRemoveShare"
+            @cancel="cancelRemoveShare" />
     </Teleport>
 </template>
 
@@ -200,8 +203,8 @@ const emailToRemove = ref('')
 // Status consolidado do compartilhamento
 const shareStatus = computed(() => {
     // 1. Verifica se há convite rejeitado não notificado (prioridade)
-    const rejectedInvite = budgetStore.shareInvites.find(invite => 
-        invite.fromUserId === authStore.userId && 
+    const rejectedInvite = budgetStore.shareInvites.find(invite =>
+        invite.fromUserId === authStore.userId &&
         invite.status === 'rejected' &&
         !invite.senderNotifiedAt
     )
@@ -214,13 +217,13 @@ const shareStatus = computed(() => {
     }
 
     // 2. Verifica se há compartilhamento ativo
-    const acceptedInvite = budgetStore.shareInvites.find(invite => 
+    const acceptedInvite = budgetStore.shareInvites.find(invite =>
         invite.status === 'accepted' &&
         (invite.fromUserId === authStore.userId || invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
     )
     if (acceptedInvite) {
-        const partnerEmail = acceptedInvite.fromUserId === authStore.userId 
-            ? acceptedInvite.toUserEmail 
+        const partnerEmail = acceptedInvite.fromUserId === authStore.userId
+            ? acceptedInvite.toUserEmail
             : acceptedInvite.fromUserEmail
         return {
             type: 'active' as const,
@@ -230,8 +233,8 @@ const shareStatus = computed(() => {
     }
 
     // 3. Verifica se há convite pendente que EU ENVIEI
-    const pendingInvite = budgetStore.shareInvites.find(invite => 
-        invite.fromUserId === authStore.userId && 
+    const pendingInvite = budgetStore.shareInvites.find(invite =>
+        invite.fromUserId === authStore.userId &&
         invite.status === 'pending'
     )
     if (pendingInvite) {
@@ -311,8 +314,8 @@ const isShareOwner = computed(() => {
 const partnerId = computed(() => {
     const acceptedInvite = budgetStore.shareInvites.find(invite =>
         invite.status === 'accepted' &&
-        (invite.fromUserId === authStore.userId || 
-         invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
+        (invite.fromUserId === authStore.userId ||
+            invite.toUserEmail.toLowerCase() === authStore.userEmail?.toLowerCase())
     )
     if (!acceptedInvite) return null
     return acceptedInvite.fromUserId === authStore.userId
@@ -438,13 +441,32 @@ const cancelRemoveShare = () => {
 
 // Limpar convite rejeitado (marcar como notificado)
 const clearRejectedInvite = async () => {
-    const rejectedInvite = budgetStore.shareInvites.find(invite => 
-        invite.fromUserId === authStore.userId && 
+    const rejectedInvite = budgetStore.shareInvites.find(invite =>
+        invite.fromUserId === authStore.userId &&
         invite.status === 'rejected' &&
         !invite.senderNotifiedAt
     )
     if (rejectedInvite) {
         await budgetStore.markInviteSenderNotified(rejectedInvite.id)
+    }
+}
+
+// Cancelar convite pendente que EU ENVIEI
+const handleCancelInvite = async () => {
+    const pendingInvite = budgetStore.shareInvites.find(invite =>
+        invite.fromUserId === authStore.userId &&
+        invite.status === 'pending'
+    )
+    if (pendingInvite) {
+        try {
+            await budgetStore.cancelShareInvite(pendingInvite.id)
+        } catch (error) {
+            console.error('Erro ao cancelar convite:', error)
+            shareError.value = 'Erro ao cancelar convite'
+            setTimeout(() => {
+                shareError.value = ''
+            }, 3000)
+        }
     }
 }
 
@@ -777,7 +799,7 @@ const updateSharing = async () => {
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .pending-invite .btn-review {
         width: 100%;
         text-align: center;
@@ -1044,13 +1066,32 @@ const updateSharing = async () => {
     background: #ffebee;
 }
 
+.btn-cancel-invite {
+    padding: 6px 12px;
+    background: white;
+    border: 1px solid #ffb74d;
+    color: #f57c00;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.btn-cancel-invite:hover {
+    background: #fff3e0;
+    border-color: #ff9800;
+}
+
 /* Responsivo para status box */
 @media (max-width: 360px) {
     .share-status-box {
         flex-direction: column;
         align-items: flex-start;
     }
-    
+
     .share-status-box .btn-clear-status {
         width: 100%;
         margin-top: 8px;
