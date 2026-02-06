@@ -18,7 +18,7 @@ const subscriptionStore = useSubscriptionStore()
 
 const currentMonth = ref(new Date())
 const selectedDay = ref<number | null>(null)
-const activeTab = ref<'calendar' | 'stats'>('calendar')
+const activeTab = ref<'calendar' | 'stats' | 'history'>('calendar')
 const allTransactions = ref<(Transaction & { budgetColor: string })[]>([])
 const loading = ref(false)
 
@@ -195,6 +195,153 @@ const frequentTransactions = computed(() => {
         .slice(0, 5)
 })
 
+// ========== HISTÓRICO COMPLETO - COMPARAÇÃO ENTRE MESES ==========
+
+interface MonthSummary {
+    month: string
+    monthLabel: string
+    year: number
+    totalSpent: number
+    totalIncome: number
+    transactionCount: number
+    avgDaily: number
+    topCategory: { name: string; amount: number; color: string } | null
+}
+
+// Agrupa transações por mês
+const monthlyHistory = computed((): MonthSummary[] => {
+    const months = new Map<string, {
+        transactions: typeof allTransactions.value
+        year: number
+        monthNum: number
+    }>()
+
+    allTransactions.value.forEach(tx => {
+        const date = new Date(tx.createdAt)
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+        if (!months.has(key)) {
+            months.set(key, {
+                transactions: [],
+                year: date.getFullYear(),
+                monthNum: date.getMonth()
+            })
+        }
+        months.get(key)!.transactions.push(tx)
+    })
+
+    const summaries: MonthSummary[] = []
+
+    months.forEach((data, key) => {
+        const txs = data.transactions
+        let totalSpent = 0
+        let totalIncome = 0
+        const categoryTotals = new Map<string, { amount: number; color: string }>()
+        const daysWithTx = new Set<number>()
+
+        txs.forEach(tx => {
+            const day = new Date(tx.createdAt).getDate()
+            daysWithTx.add(day)
+
+            if (tx.isIncome) {
+                totalIncome += tx.amount
+            } else {
+                totalSpent += tx.amount
+                const existing = categoryTotals.get(tx.budgetName) || { amount: 0, color: tx.budgetColor }
+                categoryTotals.set(tx.budgetName, {
+                    amount: existing.amount + tx.amount,
+                    color: tx.budgetColor
+                })
+            }
+        })
+
+        // Encontra top category
+        let topCategory: { name: string; amount: number; color: string } | null = null
+        categoryTotals.forEach((data, name) => {
+            if (!topCategory || data.amount > topCategory.amount) {
+                topCategory = { name, amount: data.amount, color: data.color }
+            }
+        })
+
+        const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+        summaries.push({
+            month: key,
+            monthLabel: monthNames[data.monthNum] || '',
+            year: data.year,
+            totalSpent,
+            totalIncome,
+            transactionCount: txs.length,
+            avgDaily: daysWithTx.size > 0 ? totalSpent / daysWithTx.size : 0,
+            topCategory
+        })
+    })
+
+    return summaries.sort((a, b) => b.month.localeCompare(a.month))
+})
+
+// Maior gasto entre todos os meses
+const allTimeHighestMonth = computed(() => {
+    if (monthlyHistory.value.length === 0) return null
+    return monthlyHistory.value.reduce((max, month) =>
+        month.totalSpent > max.totalSpent ? month : max
+    )
+})
+
+// Menor gasto entre todos os meses
+const allTimeLowestMonth = computed(() => {
+    if (monthlyHistory.value.length === 0) return null
+    const validMonths = monthlyHistory.value.filter(m => m.totalSpent > 0)
+    if (validMonths.length === 0) return null
+    return validMonths.reduce((min, month) =>
+        month.totalSpent < min.totalSpent ? month : min
+    )
+})
+
+// Média mensal geral
+const averageMonthlySpending = computed(() => {
+    if (monthlyHistory.value.length === 0) return 0
+    const total = monthlyHistory.value.reduce((sum, m) => sum + m.totalSpent, 0)
+    return total / monthlyHistory.value.length
+})
+
+// Gastos recorrentes entre todos os meses
+const allTimeRecurringExpenses = computed(() => {
+    const descriptions = new Map<string, {
+        description: string
+        count: number
+        totalAmount: number
+        months: Set<string>
+    }>()
+
+    allTransactions.value.forEach(tx => {
+        if (tx.isIncome) return
+        const desc = tx.description?.toLowerCase().trim() || 'sem descrição'
+        const monthKey = new Date(tx.createdAt).toISOString().slice(0, 7)
+        
+        const existing = descriptions.get(desc) || {
+            description: tx.description || 'Sem descrição',
+            count: 0,
+            totalAmount: 0,
+            months: new Set<string>()
+        }
+        existing.count++
+        existing.totalAmount += tx.amount
+        existing.months.add(monthKey)
+        descriptions.set(desc, existing)
+    })
+
+    return Array.from(descriptions.values())
+        .filter(d => d.months.size > 1) // Aparece em mais de um mês
+        .sort((a, b) => b.months.size - a.months.size || b.count - a.count)
+        .slice(0, 10)
+        .map(d => ({
+            ...d,
+            monthsCount: d.months.size,
+            avgPerOccurrence: d.totalAmount / d.count
+        }))
+})
+
 // Navigation
 const previousMonth = () => {
     currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() - 1, 1)
@@ -331,7 +478,11 @@ watch(currentMonth, () => {
                                 </button>
                                 <button class="tab" :class="{ active: activeTab === 'stats' }"
                                     @click="activeTab = 'stats'">
-                                    📈 Estatísticas
+                                    📈 Mês
+                                </button>
+                                <button class="tab" :class="{ active: activeTab === 'history' }"
+                                    @click="activeTab = 'history'">
+                                    📊 Histórico
                                 </button>
                             </div>
 
@@ -463,6 +614,118 @@ watch(currentMonth, () => {
                                 <div v-if="monthTransactions.length === 0" class="empty-stats">
                                     <div class="empty-icon">📭</div>
                                     <p>Nenhuma transação neste mês</p>
+                                </div>
+                            </div>
+
+                            <!-- History Tab - Comparação entre meses -->
+                            <div v-if="activeTab === 'history'" class="history-section">
+                                <!-- Resumo geral -->
+                                <div class="history-summary">
+                                    <h4>📊 Resumo Geral</h4>
+                                    <div class="summary-cards">
+                                        <div class="summary-card">
+                                            <span class="summary-label">Média mensal</span>
+                                            <span class="summary-value">{{ formatCurrency(averageMonthlySpending) }}</span>
+                                        </div>
+                                        <div class="summary-card">
+                                            <span class="summary-label">Meses analisados</span>
+                                            <span class="summary-value">{{ monthlyHistory.length }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Destaques -->
+                                <div v-if="allTimeHighestMonth" class="history-highlights">
+                                    <div class="highlight-card warning">
+                                        <div class="highlight-icon">🔥</div>
+                                        <div class="highlight-info">
+                                            <span class="highlight-title">Mês com maior gasto</span>
+                                            <span class="highlight-value">
+                                                {{ allTimeHighestMonth.monthLabel }} {{ allTimeHighestMonth.year }}
+                                                - {{ formatCurrency(allTimeHighestMonth.totalSpent) }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div v-if="allTimeLowestMonth" class="highlight-card success">
+                                        <div class="highlight-icon">🏆</div>
+                                        <div class="highlight-info">
+                                            <span class="highlight-title">Mês mais econômico</span>
+                                            <span class="highlight-value">
+                                                {{ allTimeLowestMonth.monthLabel }} {{ allTimeLowestMonth.year }}
+                                                - {{ formatCurrency(allTimeLowestMonth.totalSpent) }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Lista de meses -->
+                                <div class="months-comparison">
+                                    <h4>📅 Histórico por Mês</h4>
+                                    <div class="months-list">
+                                        <div v-for="month in monthlyHistory" :key="month.month" class="month-card"
+                                            :class="{ 
+                                                'highest': allTimeHighestMonth?.month === month.month,
+                                                'lowest': allTimeLowestMonth?.month === month.month 
+                                            }">
+                                            <div class="month-header">
+                                                <span class="month-name">{{ month.monthLabel }} {{ month.year }}</span>
+                                                <span class="month-total" :class="{ 
+                                                    'above-avg': month.totalSpent > averageMonthlySpending,
+                                                    'below-avg': month.totalSpent < averageMonthlySpending
+                                                }">
+                                                    {{ formatCurrency(month.totalSpent) }}
+                                                </span>
+                                            </div>
+                                            <div class="month-details">
+                                                <span class="month-stat">
+                                                    🧾 {{ month.transactionCount }} transações
+                                                </span>
+                                                <span class="month-stat">
+                                                    📊 Média: {{ formatCurrency(month.avgDaily) }}/dia
+                                                </span>
+                                                <span v-if="month.totalIncome > 0" class="month-stat income">
+                                                    💰 Receitas: {{ formatCurrency(month.totalIncome) }}
+                                                </span>
+                                            </div>
+                                            <div v-if="month.topCategory" class="month-top-category">
+                                                <div class="category-color" :style="{ backgroundColor: month.topCategory.color }"></div>
+                                                <span>Top: {{ month.topCategory.name }} ({{ formatCurrency(month.topCategory.amount) }})</span>
+                                            </div>
+                                            <!-- Barra de comparação -->
+                                            <div class="comparison-bar">
+                                                <div class="bar-fill" :style="{ 
+                                                    width: `${Math.min(100, (month.totalSpent / (allTimeHighestMonth?.totalSpent || 1)) * 100)}%`,
+                                                    backgroundColor: month.totalSpent > averageMonthlySpending ? '#ef5350' : '#4CAF50'
+                                                }"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Gastos recorrentes entre meses -->
+                                <div v-if="allTimeRecurringExpenses.length > 0" class="recurring-section">
+                                    <h4>🔄 Gastos Recorrentes (aparecem em vários meses)</h4>
+                                    <div class="recurring-list">
+                                        <div v-for="item in allTimeRecurringExpenses" :key="item.description"
+                                            class="recurring-item">
+                                            <div class="recurring-info">
+                                                <span class="recurring-name">{{ item.description }}</span>
+                                                <span class="recurring-frequency">
+                                                    📅 {{ item.monthsCount }} meses · {{ item.count }}x no total
+                                                </span>
+                                            </div>
+                                            <div class="recurring-values">
+                                                <span class="recurring-total">{{ formatCurrency(item.totalAmount) }}</span>
+                                                <span class="recurring-avg">~{{ formatCurrency(item.avgPerOccurrence) }}/vez</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div v-if="monthlyHistory.length === 0" class="empty-stats">
+                                    <div class="empty-icon">📭</div>
+                                    <p>Nenhum histórico disponível</p>
                                 </div>
                             </div>
                         </template>
@@ -1066,5 +1329,262 @@ body.dark-mode .premium-gate h3 {
 body.dark-mode .premium-gate p,
 body.dark-mode .gate-features li {
     color: #aaa;
+}
+
+/* ========== HISTORY TAB STYLES ========== */
+.history-section {
+    padding: 0 4px;
+}
+
+.history-summary {
+    margin-bottom: 20px;
+}
+
+.history-summary h4 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.summary-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.summary-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 16px;
+    border-radius: 12px;
+    text-align: center;
+    color: white;
+}
+
+.summary-label {
+    display: block;
+    font-size: 12px;
+    opacity: 0.9;
+    margin-bottom: 4px;
+}
+
+.summary-value {
+    display: block;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.history-highlights {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.highlight-card.warning {
+    background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+}
+
+.highlight-card.success {
+    background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+}
+
+.months-comparison {
+    margin-bottom: 20px;
+}
+
+.months-comparison h4 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.months-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.month-card {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 16px;
+    border-left: 4px solid #667eea;
+}
+
+.month-card.highest {
+    border-left-color: #ef5350;
+    background: #fff5f5;
+}
+
+.month-card.lowest {
+    border-left-color: #4CAF50;
+    background: #f5fff5;
+}
+
+.month-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.month-name {
+    font-weight: 600;
+    color: #333;
+}
+
+.month-total {
+    font-weight: bold;
+    font-size: 16px;
+}
+
+.month-total.above-avg {
+    color: #ef5350;
+}
+
+.month-total.below-avg {
+    color: #4CAF50;
+}
+
+.month-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.month-stat {
+    font-size: 12px;
+    color: #666;
+    background: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.month-stat.income {
+    color: #4CAF50;
+    background: #E8F5E9;
+}
+
+.month-top-category {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.comparison-bar {
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.recurring-section {
+    margin-top: 20px;
+}
+
+.recurring-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.recurring-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.recurring-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 10px;
+    border-left: 3px solid #667eea;
+}
+
+.recurring-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+
+.recurring-name {
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+}
+
+.recurring-frequency {
+    font-size: 12px;
+    color: #666;
+}
+
+.recurring-values {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+}
+
+.recurring-total {
+    font-weight: bold;
+    color: #333;
+}
+
+.recurring-avg {
+    font-size: 11px;
+    color: #999;
+}
+
+/* Dark mode for history */
+body.dark-mode .history-summary h4,
+body.dark-mode .months-comparison h4,
+body.dark-mode .recurring-section h4 {
+    color: #fff;
+}
+
+body.dark-mode .month-card {
+    background: #2a2a2a;
+}
+
+body.dark-mode .month-card.highest {
+    background: #3d2d2d;
+}
+
+body.dark-mode .month-card.lowest {
+    background: #2d3d2d;
+}
+
+body.dark-mode .month-name,
+body.dark-mode .month-total,
+body.dark-mode .recurring-name,
+body.dark-mode .recurring-total {
+    color: #fff;
+}
+
+body.dark-mode .month-stat {
+    background: #333;
+    color: #ccc;
+}
+
+body.dark-mode .recurring-item {
+    background: #2a2a2a;
+}
+
+body.dark-mode .comparison-bar {
+    background: #444;
 }
 </style>

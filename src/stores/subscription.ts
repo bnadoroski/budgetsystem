@@ -22,10 +22,61 @@ export const useSubscriptionStore = defineStore('subscription', () => {
     const subscription = ref<Subscription | null>(null)
     const stripeSubscription = ref<StripeSubscription | null>(null)
     const referrals = ref<Referral[]>([])
+    const sentInvites = ref<{ id: string; toEmail: string; sentAt: Date; status: string }[]>([])
     const loading = ref(false)
     const error = ref<string | null>(null)
     const termsAccepted = ref(false)
     const termsAcceptedAt = ref<string | null>(null)
+
+    // Cache local para status premium (evita flicker ao reabrir app)
+    const loadCachedPremiumStatus = () => {
+        try {
+            const cached = localStorage.getItem('premiumStatus')
+            if (cached) {
+                const data = JSON.parse(cached)
+                // Verifica se o cache não expirou (24 horas)
+                if (data.timestamp && Date.now() - data.timestamp < 24 * 60 * 60 * 1000) {
+                    if (data.stripeSubscription) {
+                        stripeSubscription.value = data.stripeSubscription
+                    }
+                    if (data.subscription) {
+                        subscription.value = {
+                            ...data.subscription,
+                            premiumStartDate: data.subscription.premiumStartDate ? new Date(data.subscription.premiumStartDate) : undefined,
+                            premiumEndDate: data.subscription.premiumEndDate ? new Date(data.subscription.premiumEndDate) : undefined
+                        }
+                    }
+                    console.log('📦 Loaded cached premium status:', data.isPremium ? 'Premium' : 'Free')
+                    return true
+                }
+            }
+        } catch (e) {
+            console.error('Error loading cached premium status:', e)
+        }
+        return false
+    }
+
+    const savePremiumStatusToCache = () => {
+        try {
+            const cacheData = {
+                isPremium: isPremium.value,
+                stripeSubscription: stripeSubscription.value,
+                subscription: subscription.value ? {
+                    ...subscription.value,
+                    premiumStartDate: subscription.value.premiumStartDate?.toISOString(),
+                    premiumEndDate: subscription.value.premiumEndDate?.toISOString()
+                } : null,
+                timestamp: Date.now()
+            }
+            localStorage.setItem('premiumStatus', JSON.stringify(cacheData))
+            console.log('💾 Saved premium status to cache:', cacheData.isPremium ? 'Premium' : 'Free')
+        } catch (e) {
+            console.error('Error saving premium status to cache:', e)
+        }
+    }
+
+    // Inicializa com cache local
+    loadCachedPremiumStatus()
 
     // Computed - verifica se é premium baseado no plano OU na assinatura Stripe ativa
     const isPremium = computed(() => {
@@ -143,7 +194,13 @@ export const useSubscriptionStore = defineStore('subscription', () => {
                     subscription.value = {
                         ...data.subscription,
                         premiumStartDate: data.subscription.premiumStartDate ? new Date(data.subscription.premiumStartDate) : undefined,
-                        premiumEndDate: data.subscription.premiumEndDate ? new Date(data.subscription.premiumEndDate) : undefined
+                        premiumEndDate: data.subscription.premiumEndDate ? new Date(data.subscription.premiumEndDate) : undefined,
+                        // Garante que sempre tenha um referralCode
+                        referralCode: data.subscription.referralCode || generateReferralCode()
+                    }
+                    // Se gerou um novo referralCode, salva no Firebase
+                    if (!data.subscription.referralCode) {
+                        await saveSubscription()
                     }
                 } else {
                     // Initialize default subscription
@@ -159,6 +216,9 @@ export const useSubscriptionStore = defineStore('subscription', () => {
 
             // Load referrals
             await loadReferrals()
+
+            // Salva no cache local após carregar do Firebase
+            savePremiumStatusToCache()
         } catch (err: any) {
             console.error('Erro ao carregar subscription:', err)
             error.value = err.message
@@ -182,6 +242,9 @@ export const useSubscriptionStore = defineStore('subscription', () => {
                 },
                 updatedAt: new Date().toISOString()
             }, { merge: true })
+
+            // Atualiza cache local
+            savePremiumStatusToCache()
         } catch (err: any) {
             console.error('Erro ao salvar subscription:', err)
             error.value = err.message
@@ -229,6 +292,27 @@ export const useSubscriptionStore = defineStore('subscription', () => {
             })) as Referral[]
         } catch (err: any) {
             console.error('Erro ao carregar referrals:', err)
+        }
+    }
+
+    // Load sent invites
+    const loadSentInvites = async () => {
+        const authStore = useAuthStore()
+        if (!authStore.userId) return
+
+        try {
+            const sentInvitesRef = collection(db, 'users', authStore.userId, 'sentInvites')
+            const snapshot = await getDocs(sentInvitesRef)
+
+            sentInvites.value = snapshot.docs.map(doc => ({
+                id: doc.id,
+                toEmail: doc.data().toEmail,
+                sentAt: doc.data().sentAt?.toDate() || new Date(),
+                status: doc.data().status || 'sent'
+            }))
+            console.log('📧 Loaded sent invites:', sentInvites.value.length)
+        } catch (err: any) {
+            console.error('Erro ao carregar convites enviados:', err)
         }
     }
 
@@ -423,6 +507,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
         subscription,
         stripeSubscription,
         referrals,
+        sentInvites,
         loading,
         error,
         termsAccepted,
@@ -445,6 +530,7 @@ export const useSubscriptionStore = defineStore('subscription', () => {
         saveSubscription,
         acceptTerms,
         loadReferrals,
+        loadSentInvites,
         applyReferralCode,
         upgradeToPremium,
         addBonusMonths,
@@ -452,6 +538,12 @@ export const useSubscriptionStore = defineStore('subscription', () => {
         canAddBudget,
         getReferralLink,
         copyReferralCode,
-        syncFromStripe
+        syncFromStripe,
+        clearPremiumCache: () => {
+            localStorage.removeItem('premiumStatus')
+            subscription.value = null
+            stripeSubscription.value = null
+            console.log('🗑️ Premium cache cleared')
+        }
     }
 })

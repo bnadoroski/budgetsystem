@@ -187,7 +187,8 @@ const handleAddBudgetToGroup = (groupId: string) => {
 }
 
 const handleEditBudget = (budgetId: string) => {
-  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (!budgetId) return
+  const budget = budgetStore.budgets.find(b => b && b.id === budgetId)
   if (budget) {
     editingBudgetId.value = budget.id
     editingBudgetData.value = {
@@ -201,7 +202,8 @@ const handleEditBudget = (budgetId: string) => {
 }
 
 const handleDeleteBudget = async (budgetId: string) => {
-  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (!budgetId) return
+  const budget = budgetStore.budgets.find(b => b && b.id === budgetId)
   if (budget) {
     // Carregar contagem de transações
     const transactions = await budgetStore.loadTransactions(budgetId)
@@ -235,7 +237,8 @@ const handleDeleteConfirmed = async () => {
 }
 
 const handleConfirmReset = (budgetId: string) => {
-  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  if (!budgetId) return
+  const budget = budgetStore.budgets.find(b => b && b.id === budgetId)
   if (budget) {
     // Verifica se é um budget compartilhado
     const isShared = (budget.sharedWith && budget.sharedWith.length > 0) ||
@@ -253,7 +256,7 @@ const handleConfirmReset = (budgetId: string) => {
 
 const handleResetConfirmed = async () => {
   if (resetBudgetData.value) {
-    const budget = budgetStore.budgets.find(b => b.id === resetBudgetData.value?.id)
+    const budget = budgetStore.budgets.find(b => b && b.id === resetBudgetData.value?.id)
     if (budget) {
       logger.info('Budget reset confirmed', 'App.handleResetConfirmed', {
         budgetId: budget.id,
@@ -275,8 +278,9 @@ const handleResetConfirmed = async () => {
 }
 
 const handleViewTransactions = (budgetId: string) => {
+  if (!budgetId) return
   console.log('[APP] handleViewTransactions chamado com budgetId:', budgetId)
-  const budget = budgetStore.budgets.find(b => b.id === budgetId)
+  const budget = budgetStore.budgets.find(b => b && b.id === budgetId)
   console.log('[APP] Budget encontrado:', budget)
   if (budget) {
     transactionsBudgetData.value = {
@@ -354,6 +358,8 @@ const handleDeleteGroup = (groupId: string) => {
 const ungroupedBudgets = computed(() => {
   // Filtra budgets não agrupados e não ocultos pelo usuário atual
   return budgetStore.budgets.filter(b => {
+    // Verifica se budget é válido
+    if (!b || !b.id) return false
     if (b.groupId) return false
     const hiddenBy = b.hiddenBy || []
     return !hiddenBy.includes(authStore.userId || '')
@@ -362,7 +368,8 @@ const ungroupedBudgets = computed(() => {
 
 // Agrupa budgets com mesmo nome
 const aggregatedUngroupedBudgets = computed(() => {
-  const budgets = ungroupedBudgets.value
+  // Filtra budgets inválidos (null/undefined) para evitar erros
+  const budgets = ungroupedBudgets.value.filter(b => b && b.id && b.name)
   const grouped = new Map<string, any[]>()
 
   budgets.forEach(budget => {
@@ -376,22 +383,31 @@ const aggregatedUngroupedBudgets = computed(() => {
   const result: any[] = []
 
   grouped.forEach((budgetGroup, name) => {
+    // Verifica se o grupo tem budgets válidos
+    if (!budgetGroup || budgetGroup.length === 0) return
+    
     if (budgetGroup.length === 1) {
       // Budget único, não agregado
-      result.push({ type: 'single', budget: budgetGroup[0] })
+      const budget = budgetGroup[0]
+      if (budget && budget.id) {
+        result.push({ type: 'single', budget })
+      }
     } else {
       // Budgets agregados (mesmo nome)
-      const totalValue = budgetGroup.reduce((sum, b) => sum + b.totalValue, 0)
-      const spentValue = budgetGroup.reduce((sum, b) => sum + b.spentValue, 0)
+      const validBudgets = budgetGroup.filter(b => b && b.id)
+      if (validBudgets.length === 0) return
+      
+      const totalValue = validBudgets.reduce((sum, b) => sum + (b.totalValue || 0), 0)
+      const spentValue = validBudgets.reduce((sum, b) => sum + (b.spentValue || 0), 0)
       result.push({
         type: 'aggregated',
         aggregated: {
           name,
-          budgets: budgetGroup,
+          budgets: validBudgets,
           totalValue,
           spentValue,
-          color: budgetGroup[0].color,
-          groupId: budgetGroup[0].groupId
+          color: validBudgets[0]?.color || '#808080',
+          groupId: validBudgets[0]?.groupId
         }
       })
     }
@@ -934,6 +950,7 @@ onMounted(async () => {
       localStorage.removeItem('budgetGroups')
       // localStorage.removeItem('pendingExpenses') - REMOVIDO para manter despesas
       budgetStore.clearLocalData() // Limpa grupos em memória também (mas não pendingExpenses)
+      subscriptionStore.clearPremiumCache() // Limpa cache de premium ao fazer logout
       authStore.clearCachedUser() // Limpa cache de usuário ao forçar logout
 
       // Abre modal de login automaticamente
@@ -1093,11 +1110,11 @@ onUnmounted(() => {
           Solte aqui para remover do grupo
         </div>
         <template v-for="item in aggregatedUngroupedBudgets"
-          :key="item.type === 'single' ? item.budget.id : item.aggregated.name">
-          <BudgetBar v-if="item.type === 'single'" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
+          :key="item.type === 'single' ? item.budget?.id : item.aggregated?.name">
+          <BudgetBar v-if="item.type === 'single' && item.budget" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
             @delete="() => handleDeleteBudget(item.budget.id)" @confirm-reset="() => handleConfirmReset(item.budget.id)"
             @view-transactions="() => handleViewTransactions(item.budget.id)" />
-          <AggregatedBudgetBar v-else :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)"
+          <AggregatedBudgetBar v-else-if="item.type === 'aggregated' && item.aggregated" :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)"
             @view-transactions="(id) => handleViewTransactions(id)" @confirm-reset="(id) => handleConfirmReset(id)" />
         </template>
       </div>

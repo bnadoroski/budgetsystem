@@ -210,6 +210,8 @@ const groupBudgets = computed(() => {
     // Filtra budgets não ocultos pelo usuário atual
     const authStore = useAuthStore()
     return budgetStore.budgets.filter(b => {
+        // Verifica se budget é válido
+        if (!b || !b.id) return false
         if (b.groupId !== props.group.id) return false
         const hiddenBy = b.hiddenBy || []
         return !hiddenBy.includes(authStore.userId || '')
@@ -217,7 +219,7 @@ const groupBudgets = computed(() => {
 })
 
 const groupTotal = computed(() => {
-    return groupBudgets.value.reduce((sum, b) => sum + b.totalValue, 0)
+    return groupBudgets.value.reduce((sum, b) => sum + (b.totalValue || 0), 0)
 })
 
 const handleToggle = () => {

@@ -1,6 +1,7 @@
 import { setGlobalOptions } from "firebase-functions";
 import { onRequest } from "firebase-functions/https";
 import { onSchedule } from "firebase-functions/scheduler";
+import { onDocumentCreated } from "firebase-functions/firestore";
 import { defineSecret } from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
 import * as admin from "firebase-admin";
@@ -878,12 +879,17 @@ export const sendReferralInvite = onRequest(async (req, res) => {
     }
 
     try {
-        const { toEmail, fromName, fromEmail, referralCode, customMessage } = req.body;
+        // Debug: log do body recebido
+        logger.info("sendReferralInvite - body recebido:", req.body);
+        logger.info("sendReferralInvite - Content-Type:", req.headers["content-type"]);
+
+        const { toEmail, fromName, fromEmail, referralCode, customMessage } = req.body || {};
 
         if (!toEmail || !referralCode) {
+            logger.error("Campos faltando:", { toEmail, referralCode, bodyKeys: Object.keys(req.body || {}) });
             res.status(400).json({
                 success: false,
-                error: "Campos obrigatórios: toEmail, referralCode"
+                error: `Campos obrigatórios: toEmail, referralCode. Recebido: toEmail=${toEmail}, referralCode=${referralCode}`
             });
             return;
         }
@@ -898,14 +904,79 @@ export const sendReferralInvite = onRequest(async (req, res) => {
             return;
         }
 
+        // Verificar se o email é do próprio usuário
+        if (fromEmail && toEmail.toLowerCase() === fromEmail.toLowerCase()) {
+            res.status(400).json({
+                success: false,
+                error: "⚠️ Você não pode enviar um convite para si mesmo!"
+            });
+            return;
+        }
+
+        // Verificar se o email já está cadastrado no sistema
+        const usersRef = admin.firestore().collection("users");
+        const existingUserQuery = usersRef.where("email", "==", toEmail.toLowerCase());
+        const existingUserSnapshot = await existingUserQuery.get();
+
+        if (!existingUserSnapshot.empty) {
+            res.status(400).json({
+                success: false,
+                error: "⚠️ Este email já está cadastrado no app. Convite não enviado."
+            });
+            return;
+        }
+
+        // Encontrar o usuário remetente pelo referralCode
+        const senderQuery = usersRef.where("subscription.referralCode", "==", referralCode);
+        const senderSnapshot = await senderQuery.get();
+
+        if (senderSnapshot.empty) {
+            res.status(400).json({
+                success: false,
+                error: "Código de indicação inválido"
+            });
+            return;
+        }
+
+        const senderDoc = senderSnapshot.docs[0];
+
+        // Verificar limite de 3 convites por mês
+        const sentInvitesRef = senderDoc.ref.collection("sentInvites");
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+        const monthlyInvitesQuery = sentInvitesRef.where("sentAt", ">=", startOfMonth);
+        const monthlyInvitesSnapshot = await monthlyInvitesQuery.get();
+
+        if (monthlyInvitesSnapshot.size >= 3) {
+            res.status(400).json({
+                success: false,
+                error: "⚠️ Você atingiu o limite de 3 convites por mês. Tente novamente no próximo mês."
+            });
+            return;
+        }
+
         const success = await sendEmail(toEmail, "referral_invite", {
             inviterName: fromName || fromEmail?.split("@")[0] || "Um amigo",
             inviterEmail: fromEmail,
-            referralCode,
+            invitedEmail: toEmail,
             customMessage: customMessage || "",
         });
 
         if (success) {
+            // Salvar o convite enviado no Firestore (já temos o senderDoc)
+            try {
+                await sentInvitesRef.add({
+                    toEmail,
+                    sentAt: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "sent"
+                });
+                logger.info("Invite saved to Firestore", { toEmail, referralCode });
+            } catch (saveError) {
+                // Não falhar se não conseguir salvar - email já foi enviado
+                logger.warn("Failed to save invite to Firestore", saveError);
+            }
+
             logger.info("Referral invite email sent", {
                 toEmail,
                 fromEmail,
@@ -927,6 +998,110 @@ export const sendReferralInvite = onRequest(async (req, res) => {
             success: false,
             error: "Erro interno. Tente novamente mais tarde."
         });
+    }
+});
+
+/**
+ * Cloud Function trigger que valida indicações automaticamente quando um novo usuário é criado
+ * Verifica se existe um convite enviado para o email do novo usuário
+ */
+export const onUserCreated = onDocumentCreated("users/{userId}", async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) {
+        logger.info("No data in user document");
+        return;
+    }
+
+    const userData = snapshot.data();
+    const userId = event.params.userId;
+    const userEmail = userData?.email?.toLowerCase()?.trim();
+
+    if (!userEmail) {
+        logger.info("New user has no email", { userId });
+        return;
+    }
+
+    logger.info("🆕 New user created, checking for referral invites", { userId, userEmail });
+
+    try {
+        const db = admin.firestore();
+
+        // Buscar em todos os usuários se existe um convite enviado para este email
+        const usersSnapshot = await db.collection("users").get();
+
+        for (const userDoc of usersSnapshot.docs) {
+            // Não verificar o próprio usuário
+            if (userDoc.id === userId) continue;
+
+            const sentInvitesRef = userDoc.ref.collection("sentInvites");
+            const inviteQuery = sentInvitesRef.where("toEmail", "==", userEmail);
+            const inviteSnapshot = await inviteQuery.get();
+
+            if (!inviteSnapshot.empty) {
+                const invite = inviteSnapshot.docs[0];
+                const referrerId = userDoc.id;
+                const referrerData = userDoc.data();
+
+                logger.info("🎁 Found referral invite!", {
+                    referrerId,
+                    referredUserId: userId,
+                    toEmail: userEmail
+                });
+
+                // Verificar se já não existe uma indicação para este par
+                const existingReferral = await db.collection("referrals")
+                    .where("referrerId", "==", referrerId)
+                    .where("referredUserId", "==", userId)
+                    .get();
+
+                if (!existingReferral.empty) {
+                    logger.info("Referral already exists, skipping", { referrerId, referredUserId: userId });
+                    return;
+                }
+
+                // Criar a indicação no Firestore
+                await db.collection("referrals").add({
+                    referrerId,
+                    referrerEmail: referrerData?.email,
+                    referredUserId: userId,
+                    referredUserEmail: userEmail,
+                    status: "pending", // Começa como pendente, será validado quando qualificar
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    qualificationDeadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 dias
+                    isActive: false
+                });
+
+                // Atualizar o status do convite
+                await invite.ref.update({
+                    status: "registered",
+                    registeredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    registeredUserId: userId
+                });
+
+                logger.info("✅ Referral created and invite updated", {
+                    referrerId,
+                    referredUserId: userId
+                });
+
+                // Enviar notificação ao referenciador (opcional)
+                try {
+                    await sendEmail(referrerData?.email, "referral_bonus", {
+                        userName: referrerData?.displayName || referrerData?.email?.split("@")[0],
+                        invitedName: userData?.displayName || userEmail.split("@")[0],
+                        invitedEmail: userEmail
+                    });
+                } catch (emailErr) {
+                    logger.warn("Failed to send referral notification email", emailErr);
+                }
+
+                // Encontrou e processou, pode sair
+                return;
+            }
+        }
+
+        logger.info("No referral invite found for this email", { userEmail });
+    } catch (error) {
+        logger.error("Error processing referral for new user", error);
     }
 });
 

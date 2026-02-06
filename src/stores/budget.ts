@@ -36,6 +36,7 @@ interface PendingExpense {
     merchantName?: string
     installmentNumber?: number
     installmentTotal?: number
+    isIncome?: boolean
 }
 
 export const useBudgetStore = defineStore('budget', () => {
@@ -924,10 +925,16 @@ export const useBudgetStore = defineStore('budget', () => {
     }
 
     // Define o dia de reset mensal
-    const setResetDay = (day: number) => {
+    const setResetDay = async (day: number) => {
+        const authStore = useAuthStore()
         if (day >= 1 && day <= 28) {
             resetDay.value = day
             localStorage.setItem('resetDay', String(day))
+
+            // Salva no Firebase se estiver autenticado
+            if (authStore.userId) {
+                await saveUserSettings(authStore.userId)
+            }
         }
     }
 
@@ -953,13 +960,72 @@ export const useBudgetStore = defineStore('budget', () => {
 
     // ===== PENDING EXPENSES FROM NOTIFICATIONS =====
 
+    // Descrições que devem ser ignoradas (não são transações reais)
+    const ignoredDescriptionPatterns = [
+        /falha/i,
+        /erro/i,
+        /cancelad[ao]/i,
+        /expirad[ao]/i,
+        /recusad[ao]/i,
+        /negad[ao]/i,
+        /não autorizada/i,
+        /não realizada/i,
+        /não concluíd[ao]/i,
+        /tentativa/i,
+    ]
+
+    // Descrições que indicam valor recebido (income)
+    const incomeDescriptionPatterns = [
+        /recebid[ao]/i,
+        /estornad[ao]/i,
+        /devolu[cç]ão/i,
+        /reembolso/i,
+        /crédito/i,
+        /depósito/i,
+        /transferência recebida/i,
+        /pix recebido/i,
+    ]
+
+    const shouldIgnoreExpense = (description: string): boolean => {
+        return ignoredDescriptionPatterns.some(pattern => pattern.test(description))
+    }
+
+    const isIncomeExpense = (description: string): boolean => {
+        return incomeDescriptionPatterns.some(pattern => pattern.test(description))
+    }
+
     const addPendingExpense = (expense: Omit<PendingExpense, 'id'>) => {
-        // Check for duplicates based on amount, timestamp (within 5 seconds), and bank
+        // Ignorar notificações de falha/erro
+        if (shouldIgnoreExpense(expense.description)) {
+            console.log('⚠️ Ignoring failed/error notification:', expense.description)
+            return
+        }
+
+        // Check for duplicates based on amount and bank within a time window
+        // Samsung Pay e outros apps podem enviar múltiplas notificações da mesma compra
         const isDuplicate = pendingExpenses.value.some(existing => {
             const timeDiff = Math.abs(existing.timestamp - expense.timestamp)
-            return existing.amount === expense.amount &&
-                existing.bank === expense.bank &&
-                timeDiff < 5000 // Within 5 seconds
+            const sameAmount = existing.amount === expense.amount
+            const sameBank = existing.bank === expense.bank
+
+            // Duplicata exata: mesmo valor, banco e dentro de 60 segundos
+            if (sameAmount && sameBank && timeDiff < 60000) {
+                return true
+            }
+
+            // Duplicata por descrição similar: mesmo valor e descrição parecida dentro de 30 segundos
+            if (sameAmount && timeDiff < 30000) {
+                const existingDesc = existing.description.toLowerCase().trim()
+                const newDesc = expense.description.toLowerCase().trim()
+                // Se descrições são iguais ou uma contém a outra
+                if (existingDesc === newDesc ||
+                    existingDesc.includes(newDesc) ||
+                    newDesc.includes(existingDesc)) {
+                    return true
+                }
+            }
+
+            return false
         })
 
         if (isDuplicate) {
@@ -967,9 +1033,13 @@ export const useBudgetStore = defineStore('budget', () => {
             return
         }
 
+        // Detecta se é um valor recebido/estornado
+        const isIncome = isIncomeExpense(expense.description)
+
         const newExpense: PendingExpense = {
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            ...expense
+            ...expense,
+            isIncome
         }
         pendingExpenses.value.unshift(newExpense)
 

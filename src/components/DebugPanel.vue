@@ -29,6 +29,29 @@
           </div>
 
           <div class="debug-section">
+            <h3>📊 Mock Data (Testing)</h3>
+            <p class="section-description">Cria transações fictícias de janeiro 2026 para testar o calendário e
+              histórico.</p>
+            <div v-if="mockDataResult" class="test-result">
+              <pre>{{ mockDataResult }}</pre>
+            </div>
+            <button class="btn-test btn-mock" @click="generateMockData" :disabled="creatingMockData">
+              {{ creatingMockData ? 'Criando...' : '📅 Criar Dados de Janeiro 2026' }}
+            </button>
+          </div>
+
+          <div class="debug-section">
+            <h3>💳 Sincronizar Assinatura Stripe</h3>
+            <p class="section-description">Força sincronização da assinatura do Stripe após pagamento.</p>
+            <div v-if="syncSubscriptionResult" class="test-result">
+              <pre>{{ syncSubscriptionResult }}</pre>
+            </div>
+            <button class="btn-test btn-sync-stripe" @click="syncStripeSubscription" :disabled="syncingSubscription">
+              {{ syncingSubscription ? 'Sincronizando...' : '🔄 Sincronizar Assinatura' }}
+            </button>
+          </div>
+
+          <div class="debug-section">
             <h3>Simulate Notification</h3>
             <form @submit.prevent="sendTestNotification">
               <div class="form-group">
@@ -109,7 +132,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useAuthStore } from '@/stores/auth'
+import { useSubscriptionStore } from '@/stores/subscription'
 import { testFirebaseConnection, formatTestResults } from '@/utils/firebaseTest'
+import { createMockTransactions } from '@/utils/createMockData'
+import { stripeService } from '@/services/StripeService'
 
 const props = defineProps<{
   show: boolean
@@ -120,11 +147,17 @@ const emit = defineEmits<{
 }>()
 
 const budgetStore = useBudgetStore()
+const authStore = useAuthStore()
+const subscriptionStore = useSubscriptionStore()
 
 const connectionStatus = ref<'connected' | 'disconnected' | 'testing'>('disconnected')
 const serverEndpoint = ref('http://192.168.18.16:5173/api/expenses')
 const testingFirebase = ref(false)
 const firebaseTestResult = ref('')
+const creatingMockData = ref(false)
+const mockDataResult = ref('')
+const syncingSubscription = ref(false)
+const syncSubscriptionResult = ref('')
 
 const testNotification = ref({
   bank: 'Nubank',
@@ -257,6 +290,59 @@ const formatCurrency = (value: number) => {
     style: 'currency',
     currency: 'BRL'
   }).format(value)
+}
+
+const generateMockData = async () => {
+  if (!authStore.user?.uid) {
+    mockDataResult.value = '❌ Usuário não logado'
+    addLog('Mock data: User not logged in', 'error')
+    return
+  }
+
+  creatingMockData.value = true
+  mockDataResult.value = 'Criando transações...'
+  addLog('Creating mock transactions for January 2026...', 'info')
+
+  try {
+    await createMockTransactions(authStore.user.uid)
+    mockDataResult.value = '✅ Transações de janeiro 2026 criadas!'
+    addLog('Mock data created successfully', 'success')
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    mockDataResult.value = `❌ Erro: ${errorMessage}`
+    addLog(`Mock data error: ${errorMessage}`, 'error')
+  } finally {
+    creatingMockData.value = false
+  }
+}
+
+const syncStripeSubscription = async () => {
+  syncingSubscription.value = true
+  syncSubscriptionResult.value = 'Sincronizando com Stripe...'
+  addLog('Syncing Stripe subscription...', 'info')
+
+  try {
+    const result = await stripeService.syncSubscription()
+
+    if (result.isPremium) {
+      syncSubscriptionResult.value = `✅ Premium ativo!\nStatus: ${result.subscription?.status}\nVálido até: ${result.subscription?.currentPeriodEnd}`
+      addLog('Subscription synced: Premium active', 'success')
+      // Recarrega subscription no store
+      await subscriptionStore.loadSubscription()
+    } else if (result.subscription) {
+      syncSubscriptionResult.value = `⚠️ Status: ${result.subscription.status}\nNão é uma assinatura ativa`
+      addLog(`Subscription synced: ${result.subscription.status}`, 'info')
+    } else {
+      syncSubscriptionResult.value = '❌ Nenhuma assinatura encontrada no Stripe'
+      addLog('No subscription found in Stripe', 'error')
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    syncSubscriptionResult.value = `❌ Erro: ${errorMessage}`
+    addLog(`Sync error: ${errorMessage}`, 'error')
+  } finally {
+    syncingSubscription.value = false
+  }
 }
 
 const close = () => {
@@ -403,6 +489,28 @@ button {
 
 .btn-test:hover {
   background-color: #1976D2;
+}
+
+.btn-mock {
+  background-color: #9C27B0;
+}
+
+.btn-mock:hover {
+  background-color: #7B1FA2;
+}
+
+.btn-sync-stripe {
+  background-color: #FF9800;
+}
+
+.btn-sync-stripe:hover {
+  background-color: #F57C00;
+}
+
+.section-description {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 12px;
 }
 
 .btn-send {

@@ -525,15 +525,6 @@ ${data.supportMessage}
         </div>
       ` : ""}
       
-      <div style="margin: 24px 0; padding: 20px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); border-radius: 12px; text-align: center;">
-        <p style="margin: 0 0 8px; color: rgba(255,255,255,0.85); font-size: 13px;">
-          Seu código de indicação:
-        </p>
-        <p style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; letter-spacing: 4px; font-family: monospace;">
-          ${data.referralCode || "XXXXXXXX"}
-        </p>
-      </div>
-      
       <p style="margin: 0 0 16px; color: #3f3f46; font-size: 15px; line-height: 1.6;">
         Com o Budget System você pode:
       </p>
@@ -547,7 +538,7 @@ ${data.supportMessage}
       
       ${infoBox(`
         <p style="margin: 0; color: #166534; font-size: 14px;">
-          <strong>🎁 Bônus:</strong> Ao usar o código de indicação, você e seu amigo podem ganhar benefícios Premium!
+          <strong>🎁 Bônus:</strong> Baixe o app e crie sua conta usando este mesmo email (<strong>${data.invitedEmail || ""}</strong>) para que seu amigo ganhe benefícios Premium!
         </p>
       `)}
       
@@ -556,7 +547,7 @@ ${data.supportMessage}
       ${divider()}
       
       <p style="margin: 0; color: #71717a; font-size: 13px; text-align: center;">
-        Ao se cadastrar, use o código <strong>${data.referralCode || "XXXXXXXX"}</strong> para vincular sua conta.
+        Ao criar sua conta com o email <strong>${data.invitedEmail || "que recebeu este convite"}</strong>, a indicação será validada automaticamente.
       </p>
     `, `${data.inviterName || "Um amigo"} quer que você controle suas finanças com o Budget System!`),
   }),

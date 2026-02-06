@@ -36,8 +36,10 @@
                                 <div class="expense-content">
                                     <div class="expense-header">
                                         <span class="expense-bank">🏦 {{ expense.bank }}</span>
-                                        <span class="expense-amount" :class="{ 'income': expense.amount < 0 }">{{
-                                            formatCurrency(Math.abs(expense.amount)) }}</span>
+                                        <span class="expense-amount" :class="{ 'income': isIncomeExpense(expense) }">
+                                            {{ isIncomeExpense(expense) ? '+' : '' }}{{
+                                                formatCurrency(Math.abs(expense.amount)) }}
+                                        </span>
                                     </div>
 
                                     <p class="expense-description">{{ expense.description }}</p>
@@ -180,6 +182,7 @@ interface PendingExpense {
     merchantName?: string
     installmentNumber?: number
     installmentTotal?: number
+    isIncome?: boolean
 }
 
 const props = defineProps<{
@@ -210,6 +213,7 @@ const editingInstallmentTotal = ref<number | undefined>(undefined)
 const swipingId = ref<string | null>(null)
 const swipeX = ref(0)
 const startX = ref(0)
+const startY = ref(0)
 const isDragging = ref(false)
 const showRejectConfirm = ref(false)
 const expenseToReject = ref<PendingExpense | null>(null)
@@ -314,6 +318,36 @@ const formatTime = (timestamp: number) => {
     return date.toLocaleDateString('pt-BR')
 }
 
+// Padrões de descrição que indicam receita/entrada
+const incomeDescriptionPatterns = [
+    /recebido/i,
+    /recebeu/i,
+    /pix\s+recebido/i,
+    /transferência\s+recebida/i,
+    /estorno/i,
+    /estornado/i,
+    /devolução/i,
+    /devolvido/i,
+    /reembolso/i,
+    /reembolsado/i,
+    /cashback/i,
+    /crédito\s+em\s+conta/i,
+    /depósito/i,
+    /salário/i,
+    /pagamento\s+recebido/i,
+]
+
+// Detecta se uma despesa é income baseado no campo isIncome OU na descrição
+const isIncomeExpense = (expense: PendingExpense): boolean => {
+    // Se já tem o campo isIncome, usa ele
+    if (expense.isIncome !== undefined) {
+        return expense.isIncome
+    }
+    // Senão, verifica pela descrição
+    const description = expense.description?.toLowerCase() || ''
+    return incomeDescriptionPatterns.some(pattern => pattern.test(description))
+}
+
 // Touch handlers para swipe
 const handleTouchStart = (e: TouchEvent, expense: PendingExpense) => {
     if (!e.touches[0]) return
@@ -329,16 +363,26 @@ const handleTouchStart = (e: TouchEvent, expense: PendingExpense) => {
 
     swipingId.value = expense.id
     startX.value = e.touches[0].clientX
+    startY.value = e.touches[0].clientY
     isDragging.value = true
 }
 
 const handleTouchMove = (e: TouchEvent) => {
     if (!isDragging.value || !e.touches[0]) return
 
-    // Se moveu, cancelar long press
     const moveX = Math.abs(e.touches[0].clientX - startX.value)
-    if (moveX > 10) {
+    const moveY = Math.abs(e.touches[0].clientY - startY.value)
+
+    // Se moveu mais de 10px em qualquer direção, cancelar long press
+    if (moveX > 10 || moveY > 10) {
         handleLongPressEnd()
+    }
+
+    // Se movimento vertical é maior que horizontal, é scroll - não fazer swipe
+    if (moveY > moveX && moveY > 10) {
+        // Cancelar swipe para permitir scroll
+        swipeX.value = 0
+        return
     }
 
     swipeX.value = e.touches[0].clientX - startX.value
@@ -625,7 +669,7 @@ const close = () => {
 
 .modal-header-fixed h2 {
     margin: 0;
-    font-size: 24px;
+    font-size: 23px;
     color: #333;
 }
 
@@ -857,17 +901,20 @@ const close = () => {
 /* Checkbox container */
 .checkbox-container {
     position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     z-index: 10;
-    padding: 8px;
-    margin: -8px;
+    width: 44px;
+    cursor: pointer;
 }
 
 .custom-checkbox {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     border: 2px solid #ccc;
     border-radius: 6px;
     background: white;
@@ -876,6 +923,7 @@ const close = () => {
     justify-content: center;
     transition: all 0.2s ease;
     cursor: pointer;
+    flex-shrink: 0;
 }
 
 .custom-checkbox:hover {

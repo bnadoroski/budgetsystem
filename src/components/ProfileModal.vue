@@ -61,6 +61,22 @@
                                         ⭐ Seja Premium por R$ {{ PREMIUM_PRICE.toFixed(2).replace('.', ',') }}/mês
                                     </button>
                                 </div>
+
+                                <!-- Botão de sincronização após pagamento (só mostra se não for premium) -->
+                                <div v-if="!subscriptionStore.isPremium" class="sync-subscription">
+                                    <button class="btn-sync" @click="handleSyncSubscription"
+                                        :disabled="isSyncingSubscription">
+                                        <span v-if="isSyncingSubscription">🔄 Sincronizando...</span>
+                                        <span v-else>🔄 Sincronizar Assinatura</span>
+                                    </button>
+                                    <p class="sync-hint">Fez pagamento mas ainda aparece como gratuito?</p>
+                                    <Transition name="fade">
+                                        <div v-if="syncResult" class="sync-result"
+                                            :class="{ success: syncResult.includes('✅'), error: syncResult.includes('❌') }">
+                                            {{ syncResult }}
+                                        </div>
+                                    </Transition>
+                                </div>
                             </div>
 
                             <!-- Referral Section -->
@@ -254,6 +270,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { PREMIUM_PRICE, TERMS_VERSION } from '@/types/budget'
 import ConfirmModal from './ConfirmModal.vue'
+import { stripeService } from '@/services/StripeService'
 
 const props = defineProps<{
     show: boolean
@@ -278,6 +295,10 @@ const shareEmail = ref('')
 const isSharing = ref(false)
 const shareSuccess = ref(false)
 const shareError = ref('')
+
+// Estado para sincronização de assinatura
+const isSyncingSubscription = ref(false)
+const syncResult = ref<string>('')
 
 // Estado para gerenciamento de budgets compartilhados
 const selectedBudgetIds = ref<Set<string>>(new Set())
@@ -444,6 +465,37 @@ const toggleSelectAllBudgets = () => {
 // Verificar se um budget está compartilhado
 const isBudgetShared = (budgetId: string) => {
     return selectedBudgetIds.value.has(budgetId)
+}
+
+// Sincronizar assinatura do Stripe
+const handleSyncSubscription = async () => {
+    isSyncingSubscription.value = true
+    syncResult.value = ''
+
+    try {
+        const result = await stripeService.syncSubscription()
+
+        if (result.isPremium) {
+            syncResult.value = '✅ Assinatura ativada! Você agora é Premium!'
+            // Recarrega a subscription para atualizar a UI
+            await subscriptionStore.loadSubscription()
+        } else if (result.subscription) {
+            syncResult.value = `ℹ️ Status: ${result.subscription.status}`
+        } else {
+            syncResult.value = '❌ Nenhuma assinatura encontrada no Stripe'
+        }
+
+        setTimeout(() => {
+            syncResult.value = ''
+        }, 5000)
+    } catch (error: any) {
+        syncResult.value = `❌ Erro: ${error.message || 'Falha na sincronização'}`
+        setTimeout(() => {
+            syncResult.value = ''
+        }, 5000)
+    } finally {
+        isSyncingSubscription.value = false
+    }
 }
 
 // Toggle compartilhamento de um budget
@@ -1460,6 +1512,59 @@ body.dark-mode .btn-danger:hover {
 .btn-upgrade:hover {
     transform: translateY(-2px);
     box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+
+/* Sync Subscription */
+.sync-subscription {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.btn-sync {
+    width: 100%;
+    padding: 12px;
+    background: #f5f5f5;
+    color: #666;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-sync:hover {
+    background: #e8e8e8;
+}
+
+.btn-sync:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.sync-hint {
+    font-size: 11px;
+    color: #999;
+    margin: 8px 0 0 0;
+}
+
+.sync-result {
+    margin-top: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.sync-result.success {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.sync-result.error {
+    background: #ffebee;
+    color: #c62828;
 }
 
 .referral-card {

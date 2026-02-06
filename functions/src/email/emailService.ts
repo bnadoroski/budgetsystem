@@ -2,18 +2,6 @@ import * as nodemailer from "nodemailer";
 import * as logger from "firebase-functions/logger";
 import { emailTemplates, EmailType, EmailData } from "./emailTemplates";
 
-// Configuração do Zoho Mail SMTP
-// Usa variáveis de ambiente do arquivo .env
-const transporter = nodemailer.createTransport({
-    host: "smtppro.zoho.com",
-    port: 465,
-    secure: true, // SSL
-    auth: {
-        user: process.env.ZOHO_EMAIL || "admin@budgetsystem.cloud",
-        pass: process.env.ZOHO_PASSWORD,
-    },
-});
-
 // Configurações do email
 const EMAIL_CONFIG = {
     from: {
@@ -24,6 +12,29 @@ const EMAIL_CONFIG = {
     playStoreUrl: "https://play.google.com/store/apps/details?id=com.budgetsystem.app",
     appUrl: "https://budgetsystem.cloud",
 };
+
+// Função para criar o transporter dinamicamente
+// Isso garante que as variáveis de ambiente são lidas no momento correto
+function createTransporter() {
+    const email = process.env.ZOHO_EMAIL || "admin@budgetsystem.cloud";
+    const password = process.env.ZOHO_PASSWORD;
+
+    logger.info("Creating SMTP transporter", {
+        email,
+        hasPassword: !!password,
+        passwordLength: password?.length || 0
+    });
+
+    return nodemailer.createTransport({
+        host: "smtp.zoho.com",
+        port: 465,
+        secure: true,
+        auth: {
+            user: email,
+            pass: password,
+        },
+    });
+}
 
 /**
  * Envia um email usando o template especificado
@@ -50,6 +61,9 @@ export async function sendEmail(
             html,
         };
 
+        // Criar transporter dinamicamente
+        const transporter = createTransporter();
+
         const result = await transporter.sendMail(mailOptions);
         logger.info("Email sent successfully", {
             to,
@@ -68,6 +82,7 @@ export async function sendEmail(
  */
 export async function verifyConnection(): Promise<boolean> {
     try {
+        const transporter = createTransporter();
         await transporter.verify();
         logger.info("SMTP connection verified successfully");
         return true;

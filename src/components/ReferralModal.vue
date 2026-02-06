@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useSubscriptionStore } from '@/stores/subscription'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
@@ -17,17 +17,16 @@ const subscriptionStore = useSubscriptionStore()
 const authStore = useAuthStore()
 const { success, error: showError } = useToast()
 
-const referralCodeInput = ref('')
-const isApplying = ref(false)
-const copied = ref(false)
-
-// Novos campos para envio de email
-const showEmailForm = ref(false)
+// Campos para envio de email
 const inviteEmail = ref('')
-const inviteMessage = ref('')
 const isSendingInvite = ref(false)
+const inviteResult = ref<{ success: boolean; message: string } | null>(null)
 
-const myReferralCode = computed(() => subscriptionStore.referralCode)
+const myReferralCode = computed(() => {
+    const code = subscriptionStore.referralCode
+    console.log('🔑 myReferralCode computed:', code, 'subscription:', subscriptionStore.subscription)
+    return code
+})
 
 // Nova lógica de status: pending, validated, expired
 const validatedReferrals = computed(() =>
@@ -41,122 +40,129 @@ const expiredReferrals = computed(() =>
 )
 
 const totalBonusMonths = computed(() => subscriptionStore.subscription?.referralBonusMonths || 0)
-const hasReferrer = computed(() => !!subscriptionStore.subscription?.referredBy)
-
-const handleCopyCode = async () => {
-    const success = await subscriptionStore.copyReferralCode()
-    if (success) {
-        copied.value = true
-        setTimeout(() => {
-            copied.value = false
-        }, 2000)
-    }
-}
-
-const handleShareCode = async () => {
-    if (!myReferralCode.value) return
-
-    const shareText = `Use meu código ${myReferralCode.value} para se cadastrar no Budget System e ganhe benefícios! 🎁💰`
-
-    if (navigator.share) {
-        try {
-            await navigator.share({
-                title: 'Budget System - Código de Indicação',
-                text: shareText,
-                url: subscriptionStore.getReferralLink()
-            })
-        } catch (err) {
-            // User cancelled share
-        }
-    } else {
-        // Fallback: copy to clipboard
-        await handleCopyCode()
-    }
-}
-
-const handleShareByEmail = () => {
-    showEmailForm.value = true
-    inviteEmail.value = ''
-    inviteMessage.value = ''
-}
 
 const handleSendInviteEmail = async () => {
     if (!inviteEmail.value.trim()) {
-        showError('Digite o email do seu amigo')
+        inviteResult.value = { success: false, message: 'Digite o email do seu amigo' }
         return
     }
 
     // Validar email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(inviteEmail.value.trim())) {
-        showError('Digite um email válido')
+        inviteResult.value = { success: false, message: 'Digite um email válido' }
+        return
+    }
+
+    // Validar que não é o próprio email
+    if (inviteEmail.value.trim().toLowerCase() === authStore.userEmail?.toLowerCase()) {
+        inviteResult.value = { success: false, message: '⚠️ Você não pode enviar um convite para si mesmo!' }
+        return
+    }
+
+    // Validar que temos o código de referral
+    if (!myReferralCode.value) {
+        inviteResult.value = { success: false, message: 'Código de indicação não disponível. Recarregue a página.' }
         return
     }
 
     isSendingInvite.value = true
+    inviteResult.value = null
+
     try {
         const functionsUrl = import.meta.env.VITE_FUNCTIONS_URL || 'https://us-central1-budget-system-34ef8.cloudfunctions.net'
+
+        const requestBody = {
+            toEmail: inviteEmail.value.trim(),
+            fromName: authStore.userEmail?.split('@')[0] || 'Um amigo',
+            fromEmail: authStore.userEmail || '',
+            referralCode: myReferralCode.value
+        }
+
+        console.log('📧 Enviando convite para:', inviteEmail.value.trim())
+        console.log('📧 URL:', `${functionsUrl}/sendReferralInvite`)
+        console.log('📧 Body:', JSON.stringify(requestBody))
 
         const response = await fetch(`${functionsUrl}/sendReferralInvite`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                toEmail: inviteEmail.value.trim(),
-                fromName: authStore.userEmail?.split('@')[0] || 'Um amigo',
-                fromEmail: authStore.userEmail,
-                referralCode: myReferralCode.value,
-                customMessage: inviteMessage.value.trim()
-            })
+            body: JSON.stringify(requestBody)
         })
 
+        console.log('📧 Response status:', response.status)
         const data = await response.json()
+        console.log('📧 Response data:', data)
 
         if (data.success) {
+            inviteResult.value = { success: true, message: `✅ Convite enviado para ${inviteEmail.value.trim()}!` }
             success('Convite enviado com sucesso! 📧')
-            showEmailForm.value = false
             inviteEmail.value = ''
-            inviteMessage.value = ''
+            // Recarregar lista de convites enviados para atualizar contador
+            await subscriptionStore.loadSentInvites()
+            // Limpar mensagem de sucesso após 5 segundos
+            setTimeout(() => {
+                inviteResult.value = null
+            }, 5000)
         } else {
+            inviteResult.value = { success: false, message: data.error || 'Erro ao enviar convite' }
             showError(data.error || 'Erro ao enviar convite')
+            // Limpar mensagem de erro após 5 segundos
+            setTimeout(() => {
+                inviteResult.value = null
+            }, 5000)
         }
     } catch (err: any) {
-        console.error('Erro ao enviar convite:', err)
+        console.error('❌ Erro ao enviar convite:', err)
+        inviteResult.value = { success: false, message: `Erro: ${err.message || 'Falha na conexão'}` }
         showError('Erro ao enviar convite. Tente novamente.')
+        // Limpar mensagem de erro após 5 segundos
+        setTimeout(() => {
+            inviteResult.value = null
+        }, 5000)
     } finally {
         isSendingInvite.value = false
     }
 }
 
-const handleCancelEmailForm = () => {
-    showEmailForm.value = false
-    inviteEmail.value = ''
-    inviteMessage.value = ''
-}
+// Computed para convites enviados
+const sentInvites = computed(() => subscriptionStore.sentInvites)
 
-const handleApplyCode = async () => {
-    if (!referralCodeInput.value.trim()) {
-        showError('Digite um código de indicação')
-        return
-    }
-
-    isApplying.value = true
-    try {
-        const result = await subscriptionStore.applyReferralCode(referralCodeInput.value.trim())
-        if (result.success) {
-            success(result.message || 'Código aplicado com sucesso!')
-            referralCodeInput.value = ''
-        } else {
-            showError(result.error || 'Erro ao aplicar código')
-        }
-    } finally {
-        isApplying.value = false
-    }
-}
+// Convites restantes no mês (limite de 3)
+const invitesThisMonth = computed(() => {
+    const now = new Date()
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    return sentInvites.value.filter(invite => {
+        const sentDate = new Date(invite.sentAt)
+        return sentDate >= startOfMonth
+    }).length
+})
+const invitesRemaining = computed(() => Math.max(0, 3 - invitesThisMonth.value))
 
 onMounted(() => {
+    console.log('🎁 ReferralModal mounted, loading referrals and invites...')
     subscriptionStore.loadReferrals()
+    subscriptionStore.loadSentInvites()
+})
+
+// Carregar subscription quando o modal abrir
+watch(() => props.show, async (isVisible) => {
+    if (isVisible) {
+        console.log('🎁 ReferralModal opened, checking subscription...')
+        console.log('🔑 Current referralCode:', subscriptionStore.referralCode)
+        console.log('📦 Current subscription:', subscriptionStore.subscription)
+
+        // Recarregar convites enviados
+        await subscriptionStore.loadSentInvites()
+
+        // Se não tem referralCode, tenta carregar a subscription
+        if (!subscriptionStore.referralCode) {
+            console.log('⚠️ No referralCode, loading subscription...')
+            await subscriptionStore.loadSubscription()
+            console.log('🔑 After load, referralCode:', subscriptionStore.referralCode)
+        }
+    }
 })
 </script>
 
@@ -205,70 +211,40 @@ onMounted(() => {
 
                         <!-- My Referral Code -->
                         <section class="referral-code-section">
-                            <h3>Seu código de indicação</h3>
-                            <div class="code-card">
-                                <div class="code-display">
-                                    <span class="code">{{ myReferralCode }}</span>
-                                </div>
-                                <div class="code-actions">
-                                    <button class="btn-copy" @click="handleCopyCode">
-                                        {{ copied ? '✓ Copiado!' : '📋 Copiar' }}
-                                    </button>
-                                    <button class="btn-share" @click="handleShareCode">
-                                        📤 Compartilhar
-                                    </button>
-                                    <button class="btn-email" @click="handleShareByEmail">
-                                        ✉️ Convidar por Email
-                                    </button>
-                                </div>
-                            </div>
+                            <h3>Convidar amigos</h3>
+                            <p class="section-description">Envie um convite por email para seus amigos e ganhe 1 mês de
+                                Premium para cada um que assinar!</p>
 
                             <!-- Formulário de envio de email -->
-                            <Transition name="slide">
-                                <div v-if="showEmailForm" class="email-invite-form">
-                                    <h4>📧 Enviar convite por email</h4>
-                                    <div class="form-group">
-                                        <label>Email do amigo:</label>
-                                        <input v-model="inviteEmail" type="email" placeholder="amigo@email.com"
-                                            :disabled="isSendingInvite" />
-                                    </div>
-                                    <div class="form-group">
-                                        <label>Mensagem personalizada (opcional):</label>
-                                        <textarea v-model="inviteMessage"
-                                            placeholder="Escreva uma mensagem para seu amigo..." rows="3"
-                                            maxlength="500" :disabled="isSendingInvite"></textarea>
-                                        <span class="char-count">{{ inviteMessage.length }}/500</span>
-                                    </div>
-                                    <div class="form-actions">
-                                        <button class="btn-cancel" @click="handleCancelEmailForm"
-                                            :disabled="isSendingInvite">
-                                            Cancelar
-                                        </button>
-                                        <button class="btn-send" @click="handleSendInviteEmail"
-                                            :disabled="isSendingInvite || !inviteEmail.trim()">
-                                            {{ isSendingInvite ? 'Enviando...' : '📤 Enviar Convite' }}
-                                        </button>
-                                    </div>
+                            <div class="email-invite-form">
+                                <div class="form-group">
+                                    <label>Email do amigo:</label>
+                                    <input v-model="inviteEmail" type="email" placeholder="amigo@email.com"
+                                        :disabled="isSendingInvite" @keyup.enter="handleSendInviteEmail" />
                                 </div>
-                            </Transition>
-                        </section>
 
-                        <!-- Apply Someone's Code (only if no referrer yet) -->
-                        <section v-if="!hasReferrer" class="apply-code-section">
-                            <h3>Tem um código de amigo?</h3>
-                            <div class="apply-form">
-                                <input v-model="referralCodeInput" type="text" placeholder="Digite o código aqui"
-                                    maxlength="8" @keyup.enter="handleApplyCode" />
-                                <button class="btn-apply" :disabled="isApplying || !referralCodeInput.trim()"
-                                    @click="handleApplyCode">
-                                    {{ isApplying ? 'Aplicando...' : 'Aplicar' }}
+                                <!-- Resultado do envio -->
+                                <div v-if="inviteResult" class="invite-result"
+                                    :class="{ success: inviteResult.success, error: !inviteResult.success }">
+                                    {{ inviteResult.message }}
+                                </div>
+
+                                <button class="btn-send" @click="handleSendInviteEmail"
+                                    :disabled="isSendingInvite || !inviteEmail.trim() || invitesRemaining === 0">
+                                    <span v-if="isSendingInvite" class="loading-spinner"></span>
+                                    {{ isSendingInvite ? 'Enviando...' : '📤 Enviar Convite' }}
                                 </button>
-                            </div>
-                        </section>
 
-                        <section v-else class="already-referred">
-                            <div class="referred-badge">
-                                ✅ Você já foi indicado por um amigo!
+                                <!-- Limite de convites -->
+                                <div class="invites-limit-info" :class="{ 'limit-reached': invitesRemaining === 0 }">
+                                    <span v-if="invitesRemaining > 0">
+                                        📧 {{ invitesRemaining }} convite{{ invitesRemaining !== 1 ? 's' : '' }}
+                                        restante{{ invitesRemaining !== 1 ? 's' : '' }} este mês
+                                    </span>
+                                    <span v-else>
+                                        ⚠️ Limite de 3 convites/mês atingido. Tente novamente no próximo mês.
+                                    </span>
+                                </div>
                             </div>
                         </section>
 
@@ -327,10 +303,23 @@ onMounted(() => {
                             </div>
                         </section>
 
-                        <section v-else class="empty-referrals">
+                        <!-- Sent Invites Section -->
+                        <section v-if="sentInvites.length > 0" class="sent-invites-section">
+                            <h3>📧 Convites enviados ({{ sentInvites.length }})</h3>
+                            <div class="sent-invites-list">
+                                <div v-for="invite in sentInvites" :key="invite.id" class="sent-invite-item">
+                                    <div class="invite-email">{{ invite.toEmail }}</div>
+                                    <div class="invite-date">{{ new Date(invite.sentAt).toLocaleDateString('pt-BR') }}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section v-if="subscriptionStore.referrals.length === 0 && sentInvites.length === 0"
+                            class="empty-referrals">
                             <div class="empty-icon">👥</div>
                             <p>Você ainda não indicou ninguém</p>
-                            <span>Compartilhe seu código e ganhe Premium grátis!</span>
+                            <span>Envie convites por email e ganhe Premium grátis!</span>
                         </section>
                     </div>
                 </div>
@@ -412,6 +401,13 @@ section h3 {
     font-size: 15px;
     color: #333;
     margin: 0 0 12px 0;
+}
+
+.section-description {
+    color: #444;
+    font-size: 14px;
+    margin: 0 0 16px 0;
+    line-height: 1.5;
 }
 
 /* Info Section */
@@ -649,6 +645,64 @@ section h3 {
     transform: none;
 }
 
+/* Invites Limit Info */
+.invites-limit-info {
+    text-align: center;
+    font-size: 13px;
+    color: #666;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: #f5f5f5;
+    border-radius: 8px;
+}
+
+.invites-limit-info.limit-reached {
+    background: #fff3e0;
+    color: #e65100;
+    font-weight: 500;
+}
+
+/* Invite Result */
+.invite-result {
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    margin-bottom: 12px;
+}
+
+.invite-result.success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+}
+
+.invite-result.error {
+    background: #ffebee;
+    color: #c62828;
+    border: 1px solid #ef9a9a;
+}
+
+/* Loading Spinner */
+.loading-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Slide transition */
 .slide-enter-active,
 .slide-leave-active {
@@ -874,6 +928,48 @@ section h3 {
 
 .empty-referrals span {
     font-size: 13px;
+    color: #888;
+}
+
+/* Sent Invites Section */
+.sent-invites-section {
+    margin-top: 20px;
+    padding: 16px;
+    background: #f0f7ff;
+    border-radius: 12px;
+    border: 1px solid #d0e3ff;
+}
+
+.sent-invites-section h3 {
+    margin: 0 0 12px 0;
+    font-size: 15px;
+    color: #333;
+}
+
+.sent-invites-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sent-invite-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.invite-email {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+}
+
+.invite-date {
+    font-size: 10px;
     color: #888;
 }
 
