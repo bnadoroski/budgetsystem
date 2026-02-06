@@ -19,6 +19,67 @@
                         <!-- Divider -->
                         <div class="divider"></div>
 
+                        <!-- Subscription / Premium Section -->
+                        <div class="action-section subscription-section">
+                            <h3>👑 Minha Conta</h3>
+
+                            <div class="subscription-card" :class="{ premium: subscriptionStore.isPremium }">
+                                <div class="subscription-header">
+                                    <div class="plan-badge" :class="subscriptionStore.currentPlan">
+                                        {{ subscriptionStore.isPremium ? '👑 Premium' : '🆓 Gratuito' }}
+                                    </div>
+                                    <div v-if="subscriptionStore.isPremium && subscriptionStore.premiumDaysRemaining > 0"
+                                        class="days-remaining">
+                                        {{ subscriptionStore.premiumDaysRemaining }} dias restantes
+                                    </div>
+                                </div>
+
+                                <div class="subscription-features">
+                                    <div class="feature-row">
+                                        <span>Orçamentos</span>
+                                        <span class="feature-value">
+                                            {{ subscriptionStore.isPremium ? 'Ilimitados ♾️' : 'Até 10' }}
+                                        </span>
+                                    </div>
+                                    <div class="feature-row">
+                                        <span>Compartilhamento</span>
+                                        <span class="feature-value" :class="{ locked: !subscriptionStore.canShare }">
+                                            {{ subscriptionStore.canShare ? '✅ Ativo' : '🔒 Premium' }}
+                                        </span>
+                                    </div>
+                                    <div class="feature-row">
+                                        <span>Captura automática</span>
+                                        <span class="feature-value"
+                                            :class="{ locked: !subscriptionStore.canUseAutoNotifications }">
+                                            {{ subscriptionStore.canUseAutoNotifications ? '✅ Ativo' : '🔒 Premium' }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div v-if="!subscriptionStore.isPremium" class="upgrade-cta">
+                                    <button class="btn-upgrade" @click="emit('showPremiumModal')">
+                                        ⭐ Seja Premium por R$ {{ PREMIUM_PRICE.toFixed(2).replace('.', ',') }}/mês
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Referral Section -->
+                            <div class="referral-card" @click="emit('showReferralModal')">
+                                <div class="referral-icon">🎁</div>
+                                <div class="referral-info">
+                                    <strong>Indique amigos e ganhe!</strong>
+                                    <span>{{ subscriptionStore.activeReferralsCount }} indicações ativas</span>
+                                </div>
+                                <div class="referral-bonus" v-if="subscriptionStore.subscription?.referralBonusMonths">
+                                    +{{ subscriptionStore.subscription.referralBonusMonths }} meses
+                                </div>
+                                <div class="referral-arrow">›</div>
+                            </div>
+                        </div>
+
+                        <!-- Divider -->
+                        <div class="divider"></div>
+
                         <!-- Share Section -->
                         <div class="action-section share-section">
                             <h3>Compartilhamento</h3>
@@ -144,6 +205,25 @@
                         <!-- Divider -->
                         <div class="divider"></div>
 
+                        <!-- Terms and Legal Section -->
+                        <div class="action-section legal-section">
+                            <h3>📜 Legal</h3>
+                            <div class="legal-links">
+                                <button class="legal-link" @click="emit('showTermsModal')">
+                                    <span>Termos de Uso e Privacidade</span>
+                                    <span class="link-arrow">›</span>
+                                </button>
+                                <div class="terms-accepted-info" v-if="subscriptionStore.termsAcceptedAt">
+                                    ✅ Aceito em {{ new
+                                        Date(subscriptionStore.termsAcceptedAt).toLocaleDateString('pt-BR') }}
+                                    <span class="terms-version">(v{{ TERMS_VERSION }})</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Divider -->
+                        <div class="divider"></div>
+
                         <!-- Logout Button -->
                         <button class="action-button logout" @click="$emit('logout')">
                             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
@@ -171,6 +251,8 @@
 import { ref, computed } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
+import { useSubscriptionStore } from '@/stores/subscription'
+import { PREMIUM_PRICE, TERMS_VERSION } from '@/types/budget'
 import ConfirmModal from './ConfirmModal.vue'
 
 const props = defineProps<{
@@ -182,10 +264,15 @@ const emit = defineEmits<{
     close: []
     logout: []
     reviewInvite: [invite: any]
+    requirePremium: [feature: 'sharing' | 'autoNotifications']
+    showPremiumModal: []
+    showReferralModal: []
+    showTermsModal: []
 }>()
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
+const subscriptionStore = useSubscriptionStore()
 
 const shareEmail = ref('')
 const isSharing = ref(false)
@@ -385,6 +472,13 @@ watch(() => props.show, () => {
 
 const handleShare = async () => {
     if (!shareEmail.value) return
+
+    // Verifica se tem permissão premium para compartilhar
+    if (!subscriptionStore.canShare) {
+        emit('requirePremium', 'sharing')
+        emit('close')
+        return
+    }
 
     shareError.value = ''
     shareSuccess.value = false
@@ -1261,5 +1355,272 @@ body.dark-mode .btn-danger {
 
 body.dark-mode .btn-danger:hover {
     background: #4a2a2a;
+}
+
+/* Subscription Section Styles */
+.subscription-section {
+    margin-bottom: 0;
+}
+
+.subscription-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16px;
+    padding: 20px;
+    border: 2px solid #e0e0e0;
+    margin-bottom: 16px;
+}
+
+.subscription-card.premium {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-color: #ffd700;
+}
+
+.subscription-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.plan-badge {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.plan-badge.free {
+    background: #e9ecef;
+    color: #495057;
+}
+
+.plan-badge.premium {
+    background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+    color: #333;
+}
+
+.days-remaining {
+    font-size: 12px;
+    color: #888;
+}
+
+.subscription-card.premium .days-remaining {
+    color: #aaa;
+}
+
+.subscription-features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.feature-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    color: #555;
+}
+
+.subscription-card.premium .feature-row {
+    color: #ccc;
+}
+
+.feature-value {
+    font-weight: 500;
+    color: #333;
+}
+
+.subscription-card.premium .feature-value {
+    color: #fff;
+}
+
+.feature-value.locked {
+    color: #999;
+}
+
+.upgrade-cta {
+    margin-top: 16px;
+}
+
+.btn-upgrade {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-upgrade:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+
+.referral-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+    border: 1px solid #ffc107;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.referral-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.3);
+}
+
+.referral-icon {
+    font-size: 28px;
+}
+
+.referral-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.referral-info strong {
+    font-size: 14px;
+    color: #333;
+}
+
+.referral-info span {
+    font-size: 12px;
+    color: #856404;
+}
+
+.referral-bonus {
+    background: #38a169;
+    color: white;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.referral-arrow {
+    font-size: 20px;
+    color: #856404;
+}
+
+/* Legal Section Styles */
+.legal-section {
+    margin-bottom: 0;
+}
+
+.legal-links {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.legal-link {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333;
+    transition: all 0.2s;
+}
+
+.legal-link:hover {
+    background: #e9ecef;
+}
+
+.link-arrow {
+    font-size: 18px;
+    color: #888;
+}
+
+.terms-accepted-info {
+    font-size: 12px;
+    color: #28a745;
+    padding: 8px 12px;
+    background: rgba(40, 167, 69, 0.1);
+    border-radius: 6px;
+}
+
+.terms-version {
+    color: #888;
+    margin-left: 4px;
+}
+
+/* Dark mode for new sections */
+body.dark-mode .subscription-card {
+    background: linear-gradient(135deg, #2a2a3e 0%, #1e1e2e 100%);
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .subscription-card.premium {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-color: #ffd700;
+}
+
+body.dark-mode .plan-badge.free {
+    background: #3a3a4e;
+    color: #ccc;
+}
+
+body.dark-mode .feature-row {
+    color: #aaa;
+}
+
+body.dark-mode .feature-value {
+    color: #fff;
+}
+
+body.dark-mode .referral-card {
+    background: linear-gradient(135deg, #3a3020 0%, #4a4030 100%);
+    border-color: #8a6030;
+}
+
+body.dark-mode .referral-info strong {
+    color: #fff;
+}
+
+body.dark-mode .referral-info span {
+    color: #cca;
+}
+
+body.dark-mode .referral-arrow {
+    color: #cca;
+}
+
+body.dark-mode .legal-link {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #ccc;
+}
+
+body.dark-mode .legal-link:hover {
+    background: #3a3a4e;
+}
+
+body.dark-mode .link-arrow {
+    color: #888;
+}
+
+body.dark-mode .terms-accepted-info {
+    background: rgba(40, 167, 69, 0.2);
+    color: #68d391;
+}
+
+body.dark-mode .terms-version {
+    color: #888;
 }
 </style>

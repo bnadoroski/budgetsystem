@@ -23,6 +23,7 @@ import { useAuthStore } from './auth'
 import FCM from '@/plugins/FCMPlugin'
 import Badge from '@/plugins/BadgePlugin'
 import { Capacitor } from '@capacitor/core'
+import { logger } from '@/services/LoggerService'
 
 interface PendingExpense {
     id: string
@@ -189,6 +190,7 @@ export const useBudgetStore = defineStore('budget', () => {
     // Adiciona novo budget
     const addBudget = async (name: string, totalValue: number, color?: string, groupId?: string, shareWithPartner?: boolean) => {
         const authStore = useAuthStore()
+        logger.info('Adding budget', 'budgetStore.addBudget', { name, totalValue, groupId, shareWithPartner })
 
         // Verifica se deve compartilhar com parceiro
         let sharedWithIds: string[] = []
@@ -234,6 +236,8 @@ export const useBudgetStore = defineStore('budget', () => {
                     timeoutPromise
                 ]) as any
 
+                logger.info('Budget added successfully', 'budgetStore.addBudget', { budgetId: docRef?.id })
+
                 // Se compartilhado, também adiciona na coleção sharedBudgets
                 if (sharedWithIds.length > 0 && docRef?.id) {
                     try {
@@ -243,15 +247,14 @@ export const useBudgetStore = defineStore('budget', () => {
                             id: docRef.id,
                             ownerEmail: authStore.userEmail
                         })
-                        console.log('📤 Budget compartilhado criado em sharedBudgets')
+                        logger.info('Shared budget created', 'budgetStore.addBudget', { budgetId: docRef.id })
                     } catch (sharedError) {
-                        console.error('Erro ao criar sharedBudget:', sharedError)
+                        logger.error('Error creating shared budget', 'budgetStore.addBudget', undefined, sharedError as Error)
                     }
                 }
 
             } catch (error) {
-                console.error('❌ Erro ao adicionar budget no Firestore:', error)
-                console.error('📝 Detalhes do erro:', JSON.stringify(error, null, 2))
+                logger.error('Error adding budget to Firestore', 'budgetStore.addBudget', { name, totalValue }, error as Error)
                 // Fallback para localStorage
                 budgets.value.push({ id: Date.now().toString(), ...newBudget })
                 saveToLocalStorage()
@@ -267,6 +270,7 @@ export const useBudgetStore = defineStore('budget', () => {
     // Atualiza budget existente
     const updateBudget = async (id: string, updates: Partial<Budget>) => {
         const authStore = useAuthStore()
+        logger.debug('Updating budget', 'budgetStore.updateBudget', { budgetId: id, updates })
 
         if (authStore.userId) {
             try {
@@ -285,9 +289,9 @@ export const useBudgetStore = defineStore('budget', () => {
                             ...updates,
                             id: id
                         }, { merge: true })
-                        console.log('✅ Budget compartilhado sincronizado:', id)
+                        logger.debug('Shared budget synced', 'budgetStore.updateBudget', { budgetId: id })
                     } catch (sharedError) {
-                        console.error('Erro ao sincronizar sharedBudgets:', sharedError)
+                        logger.error('Error syncing shared budget', 'budgetStore.updateBudget', { budgetId: id }, sharedError as Error)
                     }
                 }
 
@@ -301,13 +305,13 @@ export const useBudgetStore = defineStore('budget', () => {
                         // Também atualiza na coleção sharedBudgets
                         const sharedBudgetRef = doc(db, 'sharedBudgets', id)
                         await setDoc(sharedBudgetRef, updates, { merge: true })
-                        console.log('✅ Budget do owner sincronizado:', id)
+                        logger.debug('Owner budget synced', 'budgetStore.updateBudget', { budgetId: id })
                     } catch (ownerError) {
-                        console.error('Erro ao sincronizar com owner:', ownerError)
+                        logger.error('Error syncing with owner', 'budgetStore.updateBudget', { budgetId: id }, ownerError as Error)
                     }
                 }
             } catch (error) {
-                console.error('Erro ao atualizar budget:', error)
+                logger.error('Error updating budget', 'budgetStore.updateBudget', { budgetId: id }, error as Error)
                 // Fallback local
                 const index = budgets.value.findIndex(b => b.id === id)
                 if (index !== -1) {
@@ -328,6 +332,7 @@ export const useBudgetStore = defineStore('budget', () => {
     const addExpense = async (id: string, amount: number) => {
         const budget = budgets.value.find(b => b.id === id)
         if (budget) {
+            logger.info('Adding expense', 'budgetStore.addExpense', { budgetId: id, amount, budgetName: budget.name })
             await updateBudget(id, { spentValue: budget.spentValue + amount })
         }
     }
@@ -335,6 +340,7 @@ export const useBudgetStore = defineStore('budget', () => {
     // Deleta budget
     const deleteBudget = async (id: string) => {
         const authStore = useAuthStore()
+        logger.info('Deleting budget', 'budgetStore.deleteBudget', { budgetId: id })
 
         if (authStore.userId) {
             try {
@@ -354,7 +360,7 @@ export const useBudgetStore = defineStore('budget', () => {
                         await updateDoc(ownerBudgetRef, {
                             sharedWith: newSharedWith
                         })
-                        console.log('✅ Removido do sharedWith do budget original do owner')
+                        logger.info('Removed from owner sharedWith', 'budgetStore.deleteBudget', { budgetId: id })
                     }
 
                     // Também remove do sharedBudgets
@@ -692,16 +698,23 @@ export const useBudgetStore = defineStore('budget', () => {
         )
 
         sharedUnsubscribe = onSnapshot(sharedQuery, async (snapshot) => {
-            for (const docSnapshot of snapshot.docs) {
-                const sharedBudget = { id: docSnapshot.id, ...docSnapshot.data() } as Budget
-                // Adiciona ou atualiza budget compartilhado na lista
-                const existingIndex = budgets.value.findIndex(b => b.id === sharedBudget.id)
-                if (existingIndex >= 0) {
-                    budgets.value[existingIndex] = sharedBudget
-                } else {
-                    budgets.value.push(sharedBudget)
+            // Processa mudanças do snapshot para detectar remoções
+            snapshot.docChanges().forEach(change => {
+                const sharedBudget = { id: change.doc.id, ...change.doc.data() } as Budget
+
+                if (change.type === 'added' || change.type === 'modified') {
+                    // Adiciona ou atualiza budget compartilhado na lista
+                    const existingIndex = budgets.value.findIndex(b => b.id === sharedBudget.id)
+                    if (existingIndex >= 0) {
+                        budgets.value[existingIndex] = sharedBudget
+                    } else {
+                        budgets.value.push(sharedBudget)
+                    }
+                } else if (change.type === 'removed') {
+                    // Remove budget compartilhado da lista local
+                    budgets.value = budgets.value.filter(b => b.id !== sharedBudget.id)
                 }
-            }
+            })
             // Salva no cache após atualizar budgets compartilhados
             saveToLocalStorage()
         })
@@ -1488,37 +1501,81 @@ export const useBudgetStore = defineStore('budget', () => {
                 throw new Error('Compartilhamento não encontrado')
             }
 
-            // Remover sharedWith dos budgets envolvidos
-            for (const budgetId of invite.budgetIds) {
-                // Remover do sharedBudgets collection
+            // Determinar o ID do parceiro
+            const partnerId = invite.fromUserId === authStore.userId
+                ? invite.toUserId
+                : invite.fromUserId
+
+            // === REMOVER TODOS OS BUDGETS COMPARTILHADOS ENTRE OS DOIS USUÁRIOS ===
+
+            // 1. Buscar TODOS os budgets compartilhados com o parceiro (não só os do invite.budgetIds)
+            // Isso inclui budgets que foram adicionados depois através de "Gerenciar Budgets Compartilhados"
+
+            // Budgets do usuário atual que estão compartilhados com o parceiro
+            const mySharedBudgets = budgets.value.filter(
+                b => b.ownerId === authStore.userId && b.sharedWith?.includes(partnerId!)
+            )
+
+            // Budgets do parceiro que estão compartilhados comigo
+            const partnerSharedBudgets = budgets.value.filter(
+                b => b.ownerId === partnerId && b.sharedWith?.includes(authStore.userId!)
+            )
+
+            // 2. Remover compartilhamento dos MEUS budgets
+            for (const budget of mySharedBudgets) {
+                // Remover da coleção sharedBudgets
                 try {
-                    await deleteDoc(doc(db, 'sharedBudgets', budgetId))
+                    await deleteDoc(doc(db, 'sharedBudgets', budget.id))
                 } catch (e) {
-                    console.warn('Budget compartilhado não encontrado para deletar:', budgetId)
+                    console.warn('Budget compartilhado não encontrado para deletar:', budget.id)
                 }
 
-                // Atualizar o budget original do remetente
-                const budgetRef = doc(db, 'users', invite.fromUserId, 'budgets', budgetId)
-                const budgetSnap = await getDoc(budgetRef)
-                if (budgetSnap.exists()) {
-                    const budgetData = budgetSnap.data()
-                    const currentSharedWith = budgetData.sharedWith || []
-                    const targetUserId = invite.fromUserId === authStore.userId
-                        ? invite.toUserId
-                        : authStore.userId
-                    await updateDoc(budgetRef, {
-                        sharedWith: currentSharedWith.filter((id: string) => id !== targetUserId)
-                    })
+                // Atualizar meu budget removendo o parceiro do sharedWith
+                const budgetRef = doc(db, 'users', authStore.userId, 'budgets', budget.id)
+                await updateDoc(budgetRef, {
+                    sharedWith: (budget.sharedWith || []).filter((id: string) => id !== partnerId)
+                })
+            }
+
+            // 3. Remover compartilhamento dos budgets DO PARCEIRO (para que ele também perca acesso aos meus)
+            for (const budget of partnerSharedBudgets) {
+                // Remover da coleção sharedBudgets
+                try {
+                    await deleteDoc(doc(db, 'sharedBudgets', budget.id))
+                } catch (e) {
+                    console.warn('Budget compartilhado do parceiro não encontrado para deletar:', budget.id)
+                }
+
+                // Atualizar budget do parceiro removendo eu do sharedWith
+                if (partnerId) {
+                    const budgetRef = doc(db, 'users', partnerId, 'budgets', budget.id)
+                    try {
+                        await updateDoc(budgetRef, {
+                            sharedWith: (budget.sharedWith || []).filter((id: string) => id !== authStore.userId)
+                        })
+                    } catch (e) {
+                        console.warn('Erro ao atualizar budget do parceiro:', e)
+                    }
                 }
             }
 
-            // Deletar o convite
+            // 4. Deletar o convite do Firestore
             await deleteDoc(doc(db, 'shareInvites', invite.id))
 
-            // Atualizar local
+            // 5. Atualizar estado local - remover o convite da lista
             shareInvites.value = shareInvites.value.filter(i => i.id !== invite.id)
 
-            // Recarregar budgets
+            // 6. IMPORTANTE: Remover budgets compartilhados da memória local e do cache
+            // Isso garante que os budgets do parceiro não continuem aparecendo
+            if (partnerId) {
+                // Remove todos os budgets que pertencem ao parceiro
+                budgets.value = budgets.value.filter(b => b.ownerId !== partnerId)
+
+                // Atualiza o cache local
+                saveToLocalStorage()
+            }
+
+            // 7. Recarregar budgets (agora sem preservar os compartilhados do parceiro removido)
             await loadBudgets(authStore.userId)
 
             console.log('Compartilhamento removido com sucesso')
@@ -2362,7 +2419,7 @@ export const useBudgetStore = defineStore('budget', () => {
             console.error('Erro ao enviar notificação de despesas pendentes:', error)
         }
     }
-
+    // abc
     // Envia notificação quando usuário não abre o app há 15+ dias
     const sendInactivityNotification = async () => {
         if (!Capacitor.isNativePlatform()) return
@@ -2486,6 +2543,7 @@ export const useBudgetStore = defineStore('budget', () => {
         updateSharedBudgets,
         // Monthly History
         loadHistory,
+        saveToHistory,
         setResetDay,
         resetMonthlyBudgets,
         checkAndResetBudgets,

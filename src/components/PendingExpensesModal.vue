@@ -17,7 +17,13 @@
                                 <!-- Checkbox para seleção múltipla -->
                                 <div v-if="selectionMode" class="checkbox-container"
                                     @click.stop="toggleSelection(expense.id)">
-                                    <input type="checkbox" :checked="selectedExpenses.has(expense.id)" @click.stop />
+                                    <div class="custom-checkbox"
+                                        :class="{ 'checked': selectedExpenses.has(expense.id) }">
+                                        <svg v-if="selectedExpenses.has(expense.id)" class="check-icon"
+                                            viewBox="0 0 24 24">
+                                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z" />
+                                        </svg>
+                                    </div>
                                 </div>
                                 <!-- Ação de fundo quando arrasta -->
                                 <div class="swipe-action-left" v-if="swipeX < -50">
@@ -160,6 +166,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
+import { useSubscriptionStore } from '@/stores/subscription'
 import ConfirmModal from './ConfirmModal.vue'
 import { useLongPress } from '@/composables/useLongPress'
 
@@ -182,9 +189,11 @@ const props = defineProps<{
 const emit = defineEmits<{
     close: []
     openAddBudget: [expense: PendingExpense]
+    requirePremium: [] // Emitido quando usuário tenta atribuir sem ser premium
 }>()
 
 const budgetStore = useBudgetStore()
+const subscriptionStore = useSubscriptionStore()
 const editingExpense = ref<PendingExpense | null>(null)
 const editingDescription = ref<string>('')
 
@@ -384,6 +393,12 @@ const handleMouseDown = (e: MouseEvent, expense: PendingExpense) => {
 }
 
 const approveExpense = async (expense: PendingExpense) => {
+    // Verifica se pode atribuir (premium)
+    if (!subscriptionStore.canUseAutoNotifications) {
+        emit('requirePremium')
+        return
+    }
+
     // Procura ou cria budget
     let budget = budgetStore.budgets.find(b =>
         b.name.toLowerCase() === expense.category.toLowerCase()
@@ -422,6 +437,13 @@ const editExpense = (expense: PendingExpense) => {
 const selectBudget = async (budgetName: string) => {
     if (!editingExpense.value) return
 
+    // Verifica se pode atribuir (premium)
+    if (!subscriptionStore.canUseAutoNotifications) {
+        emit('requirePremium')
+        editingExpense.value = null
+        return
+    }
+
     const budget = budgetStore.budgets.find(b => b.name === budgetName)
     if (budget) {
         // Atualiza a despesa com informações de parcelamento e descrição antes de aprovar
@@ -448,6 +470,13 @@ const selectBudget = async (budgetName: string) => {
 }
 
 const createNewBudget = () => {
+    // Verifica se pode atribuir (premium)
+    if (!subscriptionStore.canUseAutoNotifications) {
+        emit('requirePremium')
+        editingExpense.value = null
+        return
+    }
+
     // Emite evento para que o App.vue abra a modal de criar budget
     // e mantenha a referência da despesa pendente
     if (editingExpense.value) {
@@ -783,22 +812,23 @@ const close = () => {
 
 /* Footer fixo com botões */
 .modal-footer-fixed {
-    padding: 16px 24px;
+    padding: 12px 24px;
     background: white;
     border-top: 1px solid #eee;
     display: flex;
-    gap: 12px;
+    flex-direction: column;
+    gap: 8px;
     flex-shrink: 0;
 }
 
 .btn-clear {
-    flex: 1;
-    padding: 12px;
+    width: 100%;
+    padding: 10px;
     background: #ff5252;
     color: white;
     border: none;
     border-radius: 8px;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.2s;
@@ -809,13 +839,13 @@ const close = () => {
 }
 
 .btn-close {
-    flex: 1;
-    padding: 12px;
+    width: 100%;
+    padding: 10px;
     background: #666;
     color: white;
     border: none;
     border-radius: 8px;
-    font-size: 16px;
+    font-size: 14px;
     cursor: pointer;
     transition: background 0.2s;
 }
@@ -827,21 +857,44 @@ const close = () => {
 /* Checkbox container */
 .checkbox-container {
     position: absolute;
-    left: 8px;
+    left: 12px;
     top: 50%;
     transform: translateY(-50%);
     z-index: 10;
+    padding: 8px;
+    margin: -8px;
 }
 
-.checkbox-container input[type="checkbox"] {
-    width: 24px;
-    height: 24px;
+.custom-checkbox {
+    width: 22px;
+    height: 22px;
+    border: 2px solid #ccc;
+    border-radius: 6px;
+    background: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
     cursor: pointer;
-    accent-color: #4CAF50;
+}
+
+.custom-checkbox:hover {
+    border-color: #a0a0a0;
+}
+
+.custom-checkbox.checked {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    border-color: #4CAF50;
+}
+
+.custom-checkbox .check-icon {
+    width: 14px;
+    height: 14px;
+    fill: white;
 }
 
 .expense-card.selecting {
-    padding-left: 48px;
+    padding-left: 52px;
 }
 
 /* X vermelho para rejeitar */
@@ -1139,5 +1192,19 @@ body.dark-mode .btn-reject:hover {
 
 body.dark-mode .delete-all-section {
     border-top-color: #3a3a4e;
+}
+
+body.dark-mode .custom-checkbox {
+    background: #2a2a3e;
+    border-color: #555;
+}
+
+body.dark-mode .custom-checkbox:hover {
+    border-color: #777;
+}
+
+body.dark-mode .custom-checkbox.checked {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    border-color: #4CAF50;
 }
 </style>

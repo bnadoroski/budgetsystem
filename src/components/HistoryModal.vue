@@ -1,10 +1,17 @@
 <template>
     <Transition name="modal">
-        <div v-if="show" class="modal-overlay" @click="$emit('close')">
+        <div v-if="show" class="modal-overlay" @click="emit('close')">
             <div class="modal-content" @click.stop>
                 <div class="modal-header">
                     <h2>Histórico - {{ monthName }}</h2>
-                    <button class="close-button" @click="$emit('close')">✕</button>
+                    <button class="close-button" @click="emit('close')">✕</button>
+                </div>
+
+                <!-- Botão de Análise Financeira -->
+                <div class="analysis-button-container">
+                    <button class="analysis-button" @click="emit('open-analysis')">
+                        📊 Análise Financeira
+                    </button>
                 </div>
 
                 <!-- Navegação entre meses -->
@@ -165,7 +172,10 @@ const props = defineProps<{
     show: boolean
 }>()
 
-defineEmits(['close'])
+const emit = defineEmits<{
+    (e: 'close'): void
+    (e: 'open-analysis'): void
+}>()
 
 const budgetStore = useBudgetStore()
 const loading = ref(false)
@@ -308,6 +318,30 @@ watch(() => props.show, async (newVal) => {
     align-items: center;
     padding: 20px;
     border-bottom: 1px solid #e0e0e0;
+}
+
+/* Analysis Button */
+.analysis-button-container {
+    padding: 12px 20px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.analysis-button {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.analysis-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .modal-header h2 {

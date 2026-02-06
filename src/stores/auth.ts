@@ -186,6 +186,22 @@ export const useAuthStore = defineStore('auth', () => {
             pendingVerificationEmail.value = email
 
             await ensureUserDocument(userCredential.user)
+
+            // Enviar email de boas-vindas via Cloud Function
+            try {
+                const functionUrl = 'https://us-central1-budget-system-34ef8.cloudfunctions.net/sendWelcomeEmail'
+                await fetch(functionUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: email,
+                        userName: email.split('@')[0]
+                    })
+                })
+            } catch (welcomeErr) {
+                console.warn('Failed to send welcome email:', welcomeErr)
+            }
+
             return { success: true, needsVerification: true }
         } catch (err: any) {
             error.value = getErrorMessage(err.code)

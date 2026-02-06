@@ -158,6 +158,10 @@ const darkModeEnabled = ref(false)
 const isNativePlatform = Capacitor.isNativePlatform()
 const batteryOptimizationIgnored = ref(false)
 
+// Textos para o status de bateria (evita problema com formatter)
+const batteryStatusTitle = computed(() => batteryOptimizationIgnored.value ? 'Economia desativada' : 'Economia de bateria ativa')
+const batteryStatusDesc = computed(() => batteryOptimizationIgnored.value ? 'O app pode capturar notificações em background' : 'O sistema pode impedir o app de funcionar em background')
+
 // Verificar status da otimização de bateria
 const checkBatteryStatus = async () => {
     if (isNativePlatform) {
@@ -590,11 +594,8 @@ onMounted(() => {
                                     {{ batteryOptimizationIgnored ? '✅' : '⚠️' }}
                                 </div>
                                 <div class="status-text">
-                                    <strong>{{ batteryOptimizationIgnored ? 'Economia desativada' : 'Economia de bateria
-                                        ativa' }}</strong>
-                                    <span>{{ batteryOptimizationIgnored ? 'O app pode capturar notificações em
-                                        background' : 'O sistema pode impedir o app de funcionar em background'
-                                        }}</span>
+                                    <strong>{{ batteryStatusTitle }}</strong>
+                                    <span>{{ batteryStatusDesc }}</span>
                                 </div>
                             </div>
 

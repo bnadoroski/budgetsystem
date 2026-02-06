@@ -6,6 +6,13 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth'
+import { logger } from './services/LoggerService'
+
+// Inicializar Logger globalmente
+logger.info('App starting', 'main', {
+  version: '1.0.0',
+  timestamp: new Date().toISOString()
+})
 
 // Inicializar GoogleAuth
 GoogleAuth.initialize({

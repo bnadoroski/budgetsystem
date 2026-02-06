@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted, computed, onErrorCaptured } from 'vue'
 import { useBudgetStore } from '@/stores/budget'
 import { useAuthStore } from '@/stores/auth'
+import { useSubscriptionStore } from '@/stores/subscription'
 import { App as CapacitorApp } from '@capacitor/app'
 import NotificationPlugin from '@/plugins/NotificationPlugin'
 import BudgetBar from '@/components/BudgetBar.vue'
@@ -13,6 +14,7 @@ import SettingsModal from '@/components/SettingsModal.vue'
 import GroupsModal from '@/components/GroupsModal.vue'
 import ShareBudgetModal from '@/components/ShareBudgetModal.vue'
 import HistoryModal from '@/components/HistoryModal.vue'
+import FinancialAnalysisModal from '@/components/FinancialAnalysisModal.vue'
 import PendingExpensesModal from '@/components/PendingExpensesModal.vue'
 import DebugPanel from '@/components/DebugPanel.vue'
 import DailyBudgetCard from '@/components/DailyBudgetCard.vue'
@@ -26,12 +28,36 @@ import ConfirmDeleteModal from '@/components/ConfirmDeleteModal.vue'
 import TransactionsModal from '@/components/TransactionsModal.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
 import WelcomeScreen from '@/components/WelcomeScreen.vue'
+import TermsOfServiceModal from '@/components/TermsOfServiceModal.vue'
+import PremiumUpgradeModal from '@/components/PremiumUpgradeModal.vue'
+import ReferralModal from '@/components/ReferralModal.vue'
+import SupportModal from '@/components/SupportModal.vue'
+import LogViewerModal from '@/components/LogViewerModal.vue'
 import { useToast } from '@/composables/useToast'
+import { useModals } from '@/composables/useModals'
+import { usePullToRefresh } from '@/composables/usePullToRefresh'
 import { initFCM, checkPushPermission, requestPushPermission } from '@/plugins/FCMPlugin'
+import { useLogger } from '@/services/LoggerService'
 
 const budgetStore = useBudgetStore()
 const authStore = useAuthStore()
+const subscriptionStore = useSubscriptionStore()
+const logger = useLogger()
 const { toasts } = useToast()
+
+// Gerenciamento centralizado de modais
+const { modals, open: openModal, close: closeModal, closeTopModal } = useModals()
+
+// Pull-to-refresh
+const { isPulling, pullDistance, isRefreshing, handlers: pullHandlers } = usePullToRefresh({
+  onRefresh: async () => {
+    logger.info('Pull to refresh triggered', 'App')
+    if (authStore.userId) {
+      await budgetStore.loadBudgets(authStore.userId)
+      await budgetStore.loadGroups(authStore.userId)
+    }
+  }
+})
 
 // Error handling state
 const errorMessage = ref<string | null>(null)
@@ -40,6 +66,12 @@ const errorDetails = ref<string | null>(null)
 // Global error handler
 const handleError = (error: Error, context: string) => {
   console.error(`❌ Erro em ${context}:`, error)
+  logger.error(`Erro em ${context}`, 'App.handleError', {
+    errorMessage: error.message,
+    errorName: error.name,
+    stack: error.stack
+  }, error)
+
   errorMessage.value = `Erro em ${context}`
   errorDetails.value = `${error.name}: ${error.message}\n\nStack:\n${error.stack || 'Não disponível'}`
 
@@ -52,6 +84,10 @@ const handleError = (error: Error, context: string) => {
 
 // Capture Vue component errors
 onErrorCaptured((error: Error, instance, info) => {
+  logger.error('Vue component error captured', 'App.onErrorCaptured', {
+    info,
+    componentName: instance?.$options?.name || 'unknown'
+  }, error)
   handleError(error, `componente Vue (${info})`)
   return false // Prevent error propagation
 })
@@ -72,23 +108,9 @@ if (typeof window !== 'undefined') {
     event.preventDefault()
   })
 }
-const showAddModal = ref(false)
-const showAuthModal = ref(false)
-const showSettingsModal = ref(false)
-const showGroupsModal = ref(false)
-const showShareModal = ref(false)
-const showHistoryModal = ref(false)
-const showPendingExpensesModal = ref(false)
-const showDebugPanel = ref(false)
-const showPermissionModal = ref(false)
-const showEmptyPendingModal = ref(false)
-const showProfileModal = ref(false)
-const showShareInviteModal = ref(false)
-const showInviteResponseModal = ref(false)
+// Estado específico não gerenciado pelo useModals
 const inviteResponseData = ref<{ isAccepted: boolean, email: string }>({ isAccepted: false, email: '' })
-const showConfirmResetModal = ref(false)
-const showConfirmDeleteModal = ref(false)
-const showTransactionsModal = ref(false)
+const blockedPremiumFeature = ref<'sharing' | 'autoNotifications' | null>(null)
 const currentInvite = ref<any>(null)
 const selectedGroupIdForNewBudget = ref<string | undefined>(undefined)
 const pendingExpenseToAdd = ref<any>(null)
@@ -100,12 +122,6 @@ const resetBudgetData = ref<{ id: string, name: string, total: number, spent: nu
 const deleteBudgetData = ref<{ id: string, name: string, total: number, spent: number, transactionCount: number } | null>(null)
 const transactionsBudgetData = ref<{ id: string, name: string } | null>(null)
 
-// Pull-to-refresh state
-const isPulling = ref(false)
-const pullDistance = ref(0)
-const isRefreshing = ref(false)
-const pullThreshold = 80
-
 const pendingExpensesCount = computed(() => budgetStore.pendingExpenses.length)
 
 // Computed para convites pendentes (não vistos ou pending status)
@@ -116,72 +132,14 @@ const pendingInvitesCount = computed(() => {
   ).length
 })
 
-// Handler do botão voltar do Android
+// Handler do botão voltar do Android (agora usa useModals)
 const handleBackButton = () => {
-  // Fecha modais abertas na ordem de prioridade
-  if (showAddModal.value) {
-    showAddModal.value = false
-    return
+  // Tenta fechar a modal de maior prioridade
+  const closed = closeTopModal()
+  if (!closed) {
+    // Nenhuma modal aberta - minimiza o app
+    CapacitorApp.minimizeApp()
   }
-  if (showAuthModal.value) {
-    showAuthModal.value = false
-    return
-  }
-  if (showSettingsModal.value) {
-    showSettingsModal.value = false
-    return
-  }
-  if (showGroupsModal.value) {
-    showGroupsModal.value = false
-    return
-  }
-  if (showShareModal.value) {
-    showShareModal.value = false
-    return
-  }
-  if (showHistoryModal.value) {
-    showHistoryModal.value = false
-    return
-  }
-  if (showPendingExpensesModal.value) {
-    showPendingExpensesModal.value = false
-    return
-  }
-  if (showProfileModal.value) {
-    showProfileModal.value = false
-    return
-  }
-  if (showShareInviteModal.value) {
-    showShareInviteModal.value = false
-    return
-  }
-  if (showInviteResponseModal.value) {
-    showInviteResponseModal.value = false
-    return
-  }
-  if (showConfirmResetModal.value) {
-    showConfirmResetModal.value = false
-    return
-  }
-  if (showTransactionsModal.value) {
-    showTransactionsModal.value = false
-    return
-  }
-  if (showPermissionModal.value) {
-    showPermissionModal.value = false
-    return
-  }
-  if (showEmptyPendingModal.value) {
-    showEmptyPendingModal.value = false
-    return
-  }
-  if (showDebugPanel.value) {
-    showDebugPanel.value = false
-    return
-  }
-
-  // Se nenhuma modal está aberta, minimiza o app
-  CapacitorApp.minimizeApp()
 }
 
 const handleAddBudget = async (name: string, value: number, color: string, groupId?: string, shareWithPartner?: boolean) => {
@@ -221,10 +179,10 @@ const handleUpdateBudget = async (id: string, name: string, value: number, color
 
 const handleAddBudgetToGroup = (groupId: string) => {
   if (!authStore.isAuthenticated) {
-    showAuthModal.value = true
+    openModal('auth')
   } else {
     selectedGroupIdForNewBudget.value = groupId
-    showAddModal.value = true
+    openModal('add')
   }
 }
 
@@ -238,7 +196,7 @@ const handleEditBudget = (budgetId: string) => {
       color: budget.color,
       groupId: budget.groupId
     }
-    showAddModal.value = true
+    openModal('add')
   }
 }
 
@@ -254,18 +212,22 @@ const handleDeleteBudget = async (budgetId: string) => {
       spent: budget.spentValue,
       transactionCount: transactions.length
     }
-    showConfirmDeleteModal.value = true
+    openModal('confirmDelete')
   }
 }
 
 const handleDeleteConfirmed = async () => {
   if (deleteBudgetData.value) {
     const budgetName = deleteBudgetData.value.name
+    logger.info('Budget delete confirmed', 'App.handleDeleteConfirmed', {
+      budgetId: deleteBudgetData.value.id,
+      budgetName
+    })
     // Primeiro deleta todos os lançamentos
     await budgetStore.deleteAllTransactionsForBudget(deleteBudgetData.value.id)
     // Depois deleta o budget
     await budgetStore.deleteBudget(deleteBudgetData.value.id)
-    showConfirmDeleteModal.value = false
+    closeModal('confirmDelete')
     deleteBudgetData.value = null
     const { success } = useToast()
     success(`Budget "${budgetName}" excluído!`)
@@ -285,18 +247,30 @@ const handleConfirmReset = (budgetId: string) => {
       spent: budget.spentValue,
       isShared: !!isShared
     }
-    showConfirmResetModal.value = true
+    openModal('confirmReset')
   }
 }
 
 const handleResetConfirmed = async () => {
   if (resetBudgetData.value) {
+    const budget = budgetStore.budgets.find(b => b.id === resetBudgetData.value?.id)
+    if (budget) {
+      logger.info('Budget reset confirmed', 'App.handleResetConfirmed', {
+        budgetId: budget.id,
+        budgetName: budget.name,
+        previousSpent: budget.spentValue
+      })
+      // Salva no histórico ANTES de resetar
+      await budgetStore.saveToHistory(budget)
+    }
     // Processa lançamentos parcelados antes de deletar
     await budgetStore.processInstallmentsOnReset(resetBudgetData.value.id)
     // Depois reseta o valor gasto
     await budgetStore.updateBudget(resetBudgetData.value.id, { spentValue: 0 })
-    showConfirmResetModal.value = false
+    closeModal('confirmReset')
     resetBudgetData.value = null
+    const { success } = useToast()
+    success('Budget resetado e salvo no histórico!')
   }
 }
 
@@ -309,29 +283,56 @@ const handleViewTransactions = (budgetId: string) => {
       id: budget.id,
       name: budget.name
     }
-    showTransactionsModal.value = true
-    console.log('[APP] showTransactionsModal definido como true')
+    openModal('transactions')
+    console.log('[APP] modals.transactions definido como true')
   }
 }
 
 const handleAddBudgetClick = () => {
   if (!authStore.isAuthenticated) {
-    showAuthModal.value = true
+    openModal('auth')
   } else {
     editingBudgetId.value = undefined
     editingBudgetData.value = null
-    showAddModal.value = true
+    openModal('add')
   }
 }
 
 const handleGroupsClick = () => {
   if (!authStore.isAuthenticated) {
-    showAuthModal.value = true
+    openModal('auth')
   } else {
     editGroupIdForModal.value = null
     deleteGroupIdForModal.value = null
-    showGroupsModal.value = true
+    openModal('groups')
   }
+}
+
+// Handler para abrir compartilhamento com verificação de premium
+const handleShareClick = () => {
+  if (!authStore.isAuthenticated) {
+    openModal('auth')
+    return
+  }
+
+  // Verifica se tem permissão para compartilhar
+  if (!subscriptionStore.canShare) {
+    blockedPremiumFeature.value = 'sharing'
+    openModal('premium')
+    return
+  }
+
+  openModal('share')
+}
+
+// Handler para verificar se pode usar notificações automáticas
+const checkAutoNotificationsPermission = (): boolean => {
+  if (!subscriptionStore.canUseAutoNotifications) {
+    blockedPremiumFeature.value = 'autoNotifications'
+    openModal('premium')
+    return false
+  }
+  return true
 }
 
 // Handlers para editar/deletar grupo via long-press
@@ -341,13 +342,13 @@ const deleteGroupIdForModal = ref<string | null>(null)
 const handleEditGroup = (groupId: string) => {
   editGroupIdForModal.value = groupId
   deleteGroupIdForModal.value = null
-  showGroupsModal.value = true
+  openModal('groups')
 }
 
 const handleDeleteGroup = (groupId: string) => {
   deleteGroupIdForModal.value = groupId
   editGroupIdForModal.value = null
-  showGroupsModal.value = true
+  openModal('groups')
 }
 
 const ungroupedBudgets = computed(() => {
@@ -402,26 +403,33 @@ const aggregatedUngroupedBudgets = computed(() => {
 // Handler para abrir modal de login da WelcomeScreen
 const handleWelcomeLogin = () => {
   console.log('🔐 handleWelcomeLogin called, opening AuthModal')
-  showAuthModal.value = true
+  openModal('auth')
+}
+
+// Handler para quando login Google requer aceite de termos
+const handleGoogleRequireTerms = () => {
+  console.log('📋 Google login requer aceite de termos')
+  closeModal('auth')
+  openModal('terms')
 }
 
 const handleProfileClick = () => {
   if (authStore.isAuthenticated) {
-    showProfileModal.value = true
+    openModal('profile')
   } else {
-    showAuthModal.value = true
+    openModal('auth')
   }
 }
 
 const handleProfileLogout = () => {
-  showProfileModal.value = false
+  closeModal('profile')
   authStore.signOut()
 }
 
 const handleReviewInvite = (invite: any) => {
-  showProfileModal.value = false
+  closeModal('profile')
   currentInvite.value = invite
-  showShareInviteModal.value = true
+  openModal('shareInvite')
 }
 
 // Drag & Drop handlers para área sem grupo
@@ -511,25 +519,25 @@ const handlePendingExpensesClick = async () => {
 
   if (!permissionResult.hasPermission) {
     // Não tem permissão - solicita
-    showPermissionModal.value = true
+    openModal('permission')
     return
   }
 
   // Tem permissão - verifica se há despesas
   if (pendingExpensesCount.value > 0) {
-    showPendingExpensesModal.value = true
+    openModal('pendingExpenses')
   } else {
     // Mostra modal bonita de que não há despesas
-    showEmptyPendingModal.value = true
+    openModal('emptyPending')
   }
 }
 
 const handleHistoryClick = () => {
-  showHistoryModal.value = true
+  openModal('history')
 }
 
 const handlePermissionAllow = async () => {
-  showPermissionModal.value = false
+  closeModal('permission')
   await NotificationPlugin.requestPermission()
   permissionDenied.value = false
 
@@ -549,14 +557,14 @@ const handlePermissionAllow = async () => {
 }
 
 const handlePermissionCancel = () => {
-  showPermissionModal.value = false
+  closeModal('permission')
   permissionDenied.value = true
 }
 
 const handleOpenAddBudgetFromPending = (expense: any) => {
   pendingExpenseToAdd.value = expense
-  showPendingExpensesModal.value = false
-  showAddModal.value = true
+  closeModal('pendingExpenses')
+  openModal('add')
 }
 
 const handleAcceptInvite = async (inviteId: string) => {
@@ -566,7 +574,7 @@ const handleAcceptInvite = async (inviteId: string) => {
     console.log('✅ Convite aceito com sucesso')
     const { success } = useToast()
     success('Convite aceito! Budget compartilhado com você.')
-    showShareInviteModal.value = false
+    closeModal('shareInvite')
     currentInvite.value = null
   } catch (error: any) {
     console.error('❌ Erro ao aceitar convite:', error)
@@ -581,7 +589,7 @@ const handleRejectInvite = async (inviteId: string) => {
     await budgetStore.rejectShareInvite(inviteId)
     const { info } = useToast()
     info('Convite recusado.')
-    showShareInviteModal.value = false
+    closeModal('shareInvite')
     currentInvite.value = null
   } catch (error: any) {
     const { error: showError } = useToast()
@@ -599,7 +607,7 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
     !inv.senderNotifiedAt
   )
 
-  if (respondedInvite && !showInviteResponseModal.value) {
+  if (respondedInvite && !modals.inviteResponse) {
     const { success, error: showError } = useToast()
 
     // Mostrar toast imediato
@@ -614,13 +622,13 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
       isAccepted: respondedInvite.status === 'accepted',
       email: respondedInvite.toUserEmail
     }
-    showInviteResponseModal.value = true
+    openModal('inviteResponse')
     // Marcar como notificado
     budgetStore.markInviteSenderNotified(respondedInvite.id)
   }
 
   // 2. Verificar se tem convite não visto E modal não está aberta (evita duplicação)
-  if (!showShareInviteModal.value && !showInviteResponseModal.value) {
+  if (!modals.shareInvite && !modals.inviteResponse) {
     const unviewedInvite = newInvites.find(inv =>
       !inv.viewedAt &&
       inv.status === 'pending' &&
@@ -631,7 +639,7 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
       info(`Você recebeu um convite de ${unviewedInvite.fromUserEmail}! 📬`)
 
       currentInvite.value = unviewedInvite
-      showShareInviteModal.value = true
+      openModal('shareInvite')
       // Marcar como visto
       budgetStore.markInviteAsViewed(unviewedInvite.id)
     }
@@ -642,6 +650,13 @@ watch(() => budgetStore.shareInvites, (newInvites) => {
 watch(() => authStore.user, async (newUser, oldUser) => {
   try {
     if (newUser && !oldUser) {
+      logger.info('User logged in', 'App.authWatch', {
+        userId: newUser.uid,
+        email: newUser.email
+      })
+      // Atualiza o logger com informações do usuário
+      logger.setUser(newUser.uid, newUser.email || null)
+
       // Limpa dados antigos antes de carregar novos
       budgetStore.clearLocalData()
 
@@ -660,6 +675,11 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       }
     } else if (!newUser && oldUser) {
       // Usuário fez logout
+      logger.info('User logged out', 'App.authWatch', {
+        previousUserId: oldUser.uid
+      })
+      logger.setUser(null, null)
+
       budgetStore.stopBudgetsListener()
       budgetStore.stopGroupsListener()
       budgetStore.stopInvitesListener()
@@ -670,59 +690,78 @@ watch(() => authStore.user, async (newUser, oldUser) => {
   }
 })
 
-// Pull-to-refresh handlers
-let startY = 0
-const handleTouchStart = (e: TouchEvent) => {
-  const scrollContainer = document.querySelector('.app-container')
-  if (scrollContainer && scrollContainer.scrollTop === 0 && e.touches[0]) {
-    startY = e.touches[0].clientY
-    isPulling.value = true
-  }
-}
-
-const handleTouchMove = (e: TouchEvent) => {
-  if (!isPulling.value || isRefreshing.value || !e.touches[0]) return
-
-  const currentY = e.touches[0].clientY
-  const diff = currentY - startY
-
-  if (diff > 0) {
-    pullDistance.value = Math.min(diff * 0.5, 120)
-    if (pullDistance.value > 10) {
-      e.preventDefault()
-    }
-  }
-}
-
-const handleTouchEnd = async () => {
-  if (!isPulling.value) return
-
-  if (pullDistance.value >= pullThreshold && !isRefreshing.value && authStore.userId) {
-    isRefreshing.value = true
-    try {
-      await budgetStore.loadBudgets(authStore.userId)
-      await budgetStore.loadGroups(authStore.userId)
-    } finally {
-      setTimeout(() => {
-        isRefreshing.value = false
-        pullDistance.value = 0
-        isPulling.value = false
-      }, 500)
-    }
-  } else {
-    pullDistance.value = 0
-    isPulling.value = false
-  }
-}
-
 // Carrega budgets do usuário autenticado na inicialização
 onMounted(async () => {
+  logger.info('App mounted', 'App.onMounted', {
+    hasUser: !!authStore.user,
+    userId: authStore.user?.uid
+  })
+
+  // Verifica se é retorno do Stripe (pagamento)
+  const urlParams = new URLSearchParams(window.location.search)
+  const paymentStatus = urlParams.get('payment')
+
+  if (paymentStatus) {
+    logger.info('Payment return detected', 'App.onMounted', { paymentStatus })
+
+    // Remove o parâmetro da URL para não reprocessar
+    const cleanUrl = window.location.pathname
+    window.history.replaceState({}, document.title, cleanUrl)
+
+    if (paymentStatus === 'success') {
+      // Aguarda um pouco para o webhook do Stripe processar
+      console.log('✅ Pagamento realizado! Aguardando confirmação...')
+      const { success: showSuccess } = useToast()
+      showSuccess('Pagamento realizado! Verificando sua assinatura...')
+
+      // Faz polling para verificar status premium
+      let attempts = 0
+      const maxAttempts = 10
+      const checkInterval = 2000 // 2 segundos
+
+      const checkPremiumStatus = async () => {
+        attempts++
+        await subscriptionStore.loadSubscription()
+
+        if (subscriptionStore.isPremium) {
+          console.log('🎉 Status premium confirmado!')
+          showSuccess('🎉 Bem-vindo ao Premium! Todas as funcionalidades estão liberadas.')
+          return true
+        }
+
+        if (attempts < maxAttempts) {
+          console.log(`⏳ Verificando status premium... (${attempts}/${maxAttempts})`)
+          setTimeout(checkPremiumStatus, checkInterval)
+        } else {
+          console.log('⚠️ Timeout ao verificar status premium')
+          showSuccess('Pagamento processado! Se não aparecer como premium, faça logout e login novamente.')
+        }
+        return false
+      }
+
+      // Inicia verificação após 2 segundos
+      setTimeout(checkPremiumStatus, checkInterval)
+    } else if (paymentStatus === 'canceled') {
+      const { warning } = useToast()
+      warning('Pagamento cancelado')
+    }
+  }
+
   try {
     // authStore já monitora automaticamente o estado com onAuthStateChanged
     if (authStore.user) {
+      logger.setUser(authStore.user.uid, authStore.user.email || null)
       await budgetStore.loadBudgets(authStore.user.uid)
       await budgetStore.loadGroups(authStore.user.uid)
       await budgetStore.startSharedBudgetsListener(authStore.user.uid)
+
+      // Carrega dados de subscription/premium
+      await subscriptionStore.loadSubscription()
+
+      // Verifica se precisa aceitar os termos de uso
+      if (subscriptionStore.needsTermsAcceptance) {
+        openModal('terms')
+      }
 
       // Atualiza lastActiveAt para controle de inatividade
       await authStore.updateLastActive()
@@ -730,9 +769,9 @@ onMounted(async () => {
       // Initialize FCM
       try {
         await initFCM()
-        console.log('✅ FCM initialized')
+        logger.info('FCM initialized', 'App.onMounted')
       } catch (error) {
-        console.error('❌ FCM initialization failed:', error)
+        logger.warn('FCM initialization failed', 'App.onMounted', undefined, error as Error)
       }
 
       // Verifica se é primeira instalação para push notifications
@@ -781,7 +820,7 @@ onMounted(async () => {
       console.warn('⚠️ Permissão de notificação não habilitada!')
       // Mostra modal bonita depois de um pequeno delay
       setTimeout(() => {
-        showPermissionModal.value = true
+        openModal('permission')
       }, 1000)
     }
 
@@ -794,6 +833,15 @@ onMounted(async () => {
       console.log('🕐 Timestamp:', new Date(expense.timestamp).toLocaleString())
       console.log('==========================================')
 
+      // Verifica se usuário tem permissão premium para captura automática
+      if (!subscriptionStore.canUseAutoNotifications) {
+        console.log('⚠️ Usuário não tem permissão premium para captura automática')
+        // Não processa a notificação, mas mostra modal de upgrade
+        blockedPremiumFeature.value = 'autoNotifications'
+        openModal('premium')
+        return
+      }
+
       // Adiciona a despesa pendente para aprovação
       budgetStore.addPendingExpense({
         amount: expense.amount,
@@ -805,7 +853,7 @@ onMounted(async () => {
 
       // Abre modal automaticamente se houver despesas pendentes
       if (budgetStore.pendingExpenses.length > 0) {
-        showPendingExpensesModal.value = true
+        openModal('pendingExpenses')
       }
     })
 
@@ -853,7 +901,7 @@ onMounted(async () => {
 
         // Mostra modal de despesas pendentes
         setTimeout(() => {
-          showPendingExpensesModal.value = true
+          openModal('pendingExpenses')
         }, 1500)
       }
     } catch (e) {
@@ -890,7 +938,7 @@ onMounted(async () => {
 
       // Abre modal de login automaticamente
       setTimeout(() => {
-        showAuthModal.value = true
+        openModal('auth')
       }, 500)
     }
   } catch (error) {
@@ -912,8 +960,8 @@ onUnmounted(() => {
     v-if="!authStore.isAuthenticated && !authStore.loading && !(authStore.isOffline && authStore.hasCachedUser)"
     @login="handleWelcomeLogin" />
 
-  <div v-else class="app-container" @touchstart="handleTouchStart" @touchmove.passive="handleTouchMove"
-    @touchend="handleTouchEnd">
+  <div v-else class="app-container" @touchstart="pullHandlers.onTouchStart"
+    @touchmove.passive="pullHandlers.onTouchMove" @touchend="pullHandlers.onTouchEnd">
     <!-- Offline Banner -->
     <div v-if="authStore.isOffline" class="offline-banner">
       <span class="offline-icon">📵</span>
@@ -959,6 +1007,16 @@ onUnmounted(() => {
     <!-- <button class="debug-button" @click="showDebugPanel = true" title="Debug Panel">
       🐛
     </button> -->
+
+    <!-- Help Button (top left) -->
+    <button class="help-button" @click="openModal('support')" title="Ajuda e Suporte">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    </button>
 
     <!-- History Button -->
     <div class="pt-8">
@@ -1153,7 +1211,7 @@ onUnmounted(() => {
         </svg>
       </button>
 
-      <button class="nav-button" title="Configurações" @click="showSettingsModal = true">
+      <button class="nav-button" title="Configurações" @click="openModal('settings')">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
           <g fill="none">
             <path fill="url(#SVGPftDHeRF)"
@@ -1224,41 +1282,57 @@ onUnmounted(() => {
       </button>
     </div>
 
-    <AddBudgetModal :show="showAddModal" :preselected-group-id="selectedGroupIdForNewBudget"
+    <AddBudgetModal :show="modals.add" :preselected-group-id="selectedGroupIdForNewBudget"
       :edit-budget-id="editingBudgetId" :edit-budget-name="editingBudgetData?.name"
       :edit-budget-value="editingBudgetData?.value" :edit-budget-color="editingBudgetData?.color"
       :edit-budget-group-id="editingBudgetData?.groupId"
-      @close="showAddModal = false; selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
+      @close="closeModal('add'); selectedGroupIdForNewBudget = undefined; editingBudgetId = undefined; editingBudgetData = null"
       @submit="handleAddBudget" @update="handleUpdateBudget" />
-    <SettingsModal :show="showSettingsModal" @close="showSettingsModal = false"
+    <SettingsModal :show="modals.settings" @close="closeModal('settings')"
       @confirm-reset="(budgetId) => handleConfirmReset(budgetId)"
       @view-transactions="(budgetId) => handleViewTransactions(budgetId)" />
-    <GroupsModal :show="showGroupsModal" :edit-group-id="editGroupIdForModal" :delete-group-id="deleteGroupIdForModal"
-      @close="showGroupsModal = false; editGroupIdForModal = null; deleteGroupIdForModal = null" />
-    <ShareBudgetModal :show="showShareModal" @close="showShareModal = false" />
-    <HistoryModal :show="showHistoryModal" @close="showHistoryModal = false" />
-    <PendingExpensesModal :show="showPendingExpensesModal" @close="showPendingExpensesModal = false"
-      @open-add-budget="handleOpenAddBudgetFromPending" />
-    <DebugPanel :show="showDebugPanel" @close="showDebugPanel = false" />
-    <PermissionModal :show="showPermissionModal" @allow="handlePermissionAllow" @cancel="handlePermissionCancel"
+    <GroupsModal :show="modals.groups" :edit-group-id="editGroupIdForModal" :delete-group-id="deleteGroupIdForModal"
+      @close="closeModal('groups'); editGroupIdForModal = null; deleteGroupIdForModal = null" />
+    <ShareBudgetModal :show="modals.share" @close="closeModal('share')" />
+    <HistoryModal :show="modals.history" @close="closeModal('history')"
+      @open-analysis="closeModal('history'); openModal('analysis')" />
+    <FinancialAnalysisModal :show="modals.analysis" @close="closeModal('analysis')"
+      @upgrade="closeModal('analysis'); openModal('premium')" />
+    <PendingExpensesModal :show="modals.pendingExpenses" @close="closeModal('pendingExpenses')"
+      @open-add-budget="handleOpenAddBudgetFromPending"
+      @require-premium="() => { closeModal('pendingExpenses'); blockedPremiumFeature = 'autoNotifications'; openModal('premium') }" />
+    <DebugPanel :show="modals.debug" @close="closeModal('debug')" />
+    <PermissionModal :show="modals.permission" @allow="handlePermissionAllow" @cancel="handlePermissionCancel"
       @close="handlePermissionCancel" />
-    <EmptyPendingModal :show="showEmptyPendingModal" @close="showEmptyPendingModal = false" />
-    <ProfileModal :show="showProfileModal" :email="authStore.user?.email || ''" @close="showProfileModal = false"
-      @logout="handleProfileLogout" @review-invite="handleReviewInvite" />
-    <ShareInviteModal :show="showShareInviteModal" :invite="currentInvite" @accept="handleAcceptInvite"
-      @reject="handleRejectInvite" @close="showShareInviteModal = false" />
-    <InviteResponseModal :show="showInviteResponseModal" :isAccepted="inviteResponseData.isAccepted"
-      :email="inviteResponseData.email" @close="showInviteResponseModal = false" />
-    <ConfirmResetModal v-if="resetBudgetData" :show="showConfirmResetModal" :budget-name="resetBudgetData.name"
+    <EmptyPendingModal :show="modals.emptyPending" @close="closeModal('emptyPending')" />
+    <ProfileModal :show="modals.profile" :email="authStore.user?.email || ''" @close="closeModal('profile')"
+      @logout="handleProfileLogout" @review-invite="handleReviewInvite"
+      @require-premium="(feature) => { blockedPremiumFeature = feature; openModal('premium') }"
+      @show-premium-modal="openModal('premium')" @show-referral-modal="openModal('referral')"
+      @show-terms-modal="openModal('terms')" />
+    <ShareInviteModal :show="modals.shareInvite" :invite="currentInvite" @accept="handleAcceptInvite"
+      @reject="handleRejectInvite" @close="closeModal('shareInvite')" />
+    <InviteResponseModal :show="modals.inviteResponse" :isAccepted="inviteResponseData.isAccepted"
+      :email="inviteResponseData.email" @close="closeModal('inviteResponse')" />
+    <ConfirmResetModal v-if="resetBudgetData" :show="modals.confirmReset" :budget-name="resetBudgetData.name"
       :budget-total="resetBudgetData.total" :budget-spent="resetBudgetData.spent" :is-shared="resetBudgetData.isShared"
-      @close="showConfirmResetModal = false; resetBudgetData = null" @confirm="handleResetConfirmed" />
-    <ConfirmDeleteModal v-if="deleteBudgetData" :show="showConfirmDeleteModal" :budget-name="deleteBudgetData.name"
+      @close="closeModal('confirmReset'); resetBudgetData = null" @confirm="handleResetConfirmed" />
+    <ConfirmDeleteModal v-if="deleteBudgetData" :show="modals.confirmDelete" :budget-name="deleteBudgetData.name"
       :budget-total="deleteBudgetData.total" :budget-spent="deleteBudgetData.spent"
       :transaction-count="deleteBudgetData.transactionCount"
-      @close="showConfirmDeleteModal = false; deleteBudgetData = null" @confirm="handleDeleteConfirmed" />
-    <TransactionsModal v-if="transactionsBudgetData" :show="showTransactionsModal"
-      :budget-id="transactionsBudgetData.id" :budget-name="transactionsBudgetData.name"
-      @close="showTransactionsModal = false; transactionsBudgetData = null" />
+      @close="closeModal('confirmDelete'); deleteBudgetData = null" @confirm="handleDeleteConfirmed" />
+    <TransactionsModal v-if="transactionsBudgetData" :show="modals.transactions" :budget-id="transactionsBudgetData.id"
+      :budget-name="transactionsBudgetData.name" @close="closeModal('transactions'); transactionsBudgetData = null" />
+
+    <!-- Premium/SaaS Modals -->
+    <TermsOfServiceModal :show="modals.terms" @close="closeModal('terms')" @accepted="closeModal('terms')" />
+    <PremiumUpgradeModal :show="modals.premium" :blocked-feature="blockedPremiumFeature"
+      @close="closeModal('premium'); blockedPremiumFeature = null" @upgraded="closeModal('premium')"
+      @show-referral="closeModal('premium'); openModal('referral')" />
+    <ReferralModal :show="modals.referral" @close="closeModal('referral')" />
+    <SupportModal :show="modals.support" @close="closeModal('support')"
+      @show-logs="closeModal('support'); openModal('logs')" @show-terms="closeModal('support'); openModal('terms')" />
+    <LogViewerModal :show="modals.logs" @close="closeModal('logs')" />
 
     <!-- Toast Notifications -->
     <ToastNotification v-for="toast in toasts" :key="toast.id" :message="toast.message" :type="toast.type"
@@ -1266,7 +1340,8 @@ onUnmounted(() => {
   </div>
 
   <!-- AuthModal fora do v-else para funcionar na WelcomeScreen -->
-  <AuthModal :show="showAuthModal" :persist="!authStore.isAuthenticated" @close="showAuthModal = false" />
+  <AuthModal :show="modals.auth" :persist="!authStore.isAuthenticated" @close="closeModal('auth')"
+    @require-terms="handleGoogleRequireTerms" />
 </template>
 
 <style scoped>
@@ -1498,6 +1573,36 @@ onUnmounted(() => {
 }
 
 .debug-button:active {
+  transform: scale(0.95);
+}
+
+.help-button {
+  position: absolute;
+  top: 30px;
+  left: 20px;
+  background: white;
+  border: none;
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s;
+  z-index: 10;
+  -webkit-tap-highlight-color: transparent;
+  color: #6366f1;
+}
+
+.help-button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  color: #4f46e5;
+}
+
+.help-button:active {
   transform: scale(0.95);
 }
 

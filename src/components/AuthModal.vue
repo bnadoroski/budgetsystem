@@ -131,8 +131,20 @@
                                 </p>
                             </div>
 
+                            <!-- Checkbox de aceite dos termos (só no cadastro) -->
+                            <div v-if="mode === 'register'" class="form-group terms-checkbox">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" v-model="acceptedTerms" />
+                                    <span>Li e aceito os <a href="#" @click.prevent="showTermsPreview = true">Termos de
+                                            Uso</a></span>
+                                </label>
+                                <p v-if="!acceptedTerms && termsError" class="field-error">
+                                    Você precisa aceitar os termos de uso
+                                </p>
+                            </div>
+
                             <button type="submit" class="btn-submit"
-                                :disabled="loading || (mode === 'register' && password !== confirmPassword)">
+                                :disabled="loading || (mode === 'register' && (password !== confirmPassword || !acceptedTerms))">
                                 {{ loading ? 'Carregando...' : (mode === 'login' ? 'Entrar' : 'Criar Conta') }}
                             </button>
                         </form>
@@ -189,18 +201,21 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { useSubscriptionStore } from '@/stores/subscription'
 import ToastNotification from './ToastNotification.vue'
 
 const props = defineProps<{
     show: boolean
     persist?: boolean // Se true, não permite fechar a modal
-}>()
+}>();
 
 const emit = defineEmits<{
     close: []
+    requireTerms: [] // Emitido quando login Google requer aceite de termos
 }>()
 
 const authStore = useAuthStore()
+const subscriptionStore = useSubscriptionStore()
 
 // Estados do formulário
 const email = ref('')
@@ -208,6 +223,7 @@ const password = ref('')
 const confirmPassword = ref('')
 const showPassword = ref(false)
 const showConfirmPassword = ref(false)
+const acceptedTerms = ref(false) // Checkbox de termos
 
 // Modos: 'login', 'register', 'forgot', 'verification'
 const mode = ref<'login' | 'register' | 'forgot' | 'verification'>('login')
@@ -221,6 +237,8 @@ const successMessage = ref('')
 const resetEmailSent = ref(false)
 const verificationEmail = ref('')
 const resendCooldown = ref(0)
+const termsError = ref(false)
+const showTermsPreview = ref(false)
 
 // Timer para cooldown
 let cooldownTimer: number | null = null
@@ -247,6 +265,9 @@ watch(() => props.show, (newVal) => {
         mode.value = 'login'
         authStore.error = null
         resetEmailSent.value = false
+        acceptedTerms.value = false
+        termsError.value = false
+        showTermsPreview.value = false
     }
 })
 
@@ -267,6 +288,7 @@ const handleSubmit = async () => {
     try {
         loading.value = true
         authStore.error = null
+        termsError.value = false
 
         if (mode.value === 'login') {
             const result = await authStore.signIn(email.value, password.value)
@@ -283,10 +305,20 @@ const handleSubmit = async () => {
                 return
             }
 
+            // Verificar aceite dos termos
+            if (!acceptedTerms.value) {
+                termsError.value = true
+                loading.value = false
+                return
+            }
+
             const result = await authStore.signUp(email.value, password.value)
             loading.value = false
 
             if (result.success) {
+                // Aceita os termos automaticamente pois o checkbox foi marcado
+                await subscriptionStore.acceptTerms()
+
                 // Mostrar tela de verificação
                 verificationEmail.value = email.value
                 mode.value = 'verification'
@@ -391,7 +423,18 @@ const handleGoogleSignIn = async () => {
         loading.value = false
 
         if (result.success) {
-            close()
+            // Carrega subscription para verificar se aceitou termos
+            await subscriptionStore.loadSubscription()
+
+            // Verifica se precisa aceitar termos
+            if (subscriptionStore.needsTermsAcceptance) {
+                console.log('📋 Usuário precisa aceitar termos de uso')
+                // Emite evento para App.vue abrir modal de termos
+                emit('requireTerms')
+                // NÃO fecha a modal ainda - App.vue vai fechar quando termos forem aceitos
+            } else {
+                close()
+            }
         }
     } catch (error) {
         loading.value = false
@@ -817,5 +860,45 @@ body.dark-mode .verification-hint {
 
 body.dark-mode .forgot-password .link-button {
     color: #888;
+}
+
+/* Terms Checkbox Styles */
+.terms-checkbox {
+    margin-top: 8px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.checkbox-label input[type="checkbox"] {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #4CAF50;
+}
+
+.checkbox-label a {
+    color: #4CAF50;
+    text-decoration: underline;
+}
+
+.checkbox-label a:hover {
+    color: #388E3C;
+}
+
+body.dark-mode .checkbox-label {
+    color: #aaa;
+}
+
+body.dark-mode .checkbox-label a {
+    color: #66BB6A;
 }
 </style>
