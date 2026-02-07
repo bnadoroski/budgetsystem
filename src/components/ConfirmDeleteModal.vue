@@ -284,4 +284,47 @@ defineEmits<{
     transform: translateY(30px) scale(0.95);
     opacity: 0;
 }
+
+/* Dark Mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .warning-text {
+    color: #fff;
+}
+
+body.dark-mode .budget-summary {
+    background: #2a2a3e;
+}
+
+body.dark-mode .summary-value {
+    color: #fff;
+}
+
+body.dark-mode .summary-label {
+    color: #aaa;
+}
+
+body.dark-mode .summary-divider {
+    background: #3a3a4e;
+}
+
+body.dark-mode .danger-box {
+    background: #3a2020;
+    border-color: #5a3030;
+}
+
+body.dark-mode .danger-text {
+    color: #ff7070;
+}
+
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel:hover {
+    background: #3a3a4e;
+}
 </style>

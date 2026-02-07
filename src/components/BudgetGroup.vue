@@ -544,4 +544,17 @@ body.dark-mode .context-btn.cancel {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.9);
 }
+
+/* Dark Mode - Text */
+body.dark-mode .group-count {
+    color: #aaa;
+}
+
+body.dark-mode .expand-icon {
+    color: #aaa;
+}
+
+body.dark-mode .no-budgets {
+    color: #aaa;
+}
 </style>

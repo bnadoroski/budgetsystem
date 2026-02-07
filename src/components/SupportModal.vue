@@ -506,4 +506,65 @@ body.dark-mode .btn-terms:hover {
 .modal-leave-to .modal-container {
     transform: scale(0.95) translateY(20px);
 }
+
+/* Dark Mode */
+body.dark-mode .modal-container {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .description {
+    color: #aaa;
+}
+
+body.dark-mode .form-group label {
+    color: #ccc;
+}
+
+body.dark-mode .form-group select,
+body.dark-mode .form-group textarea {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .user-info {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-secondary {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
+
+body.dark-mode .success-message {
+    background: #1a3a2a;
+    color: #68d391;
+}
+
+body.dark-mode .error-message {
+    background: #3a2020;
+    color: #ff7070;
+}
+
+body.dark-mode .diagnostic-section {
+    background: #2a2a3e;
+}
+
+body.dark-mode .terms-section {
+    background: #2a2a3e;
+}
 </style>

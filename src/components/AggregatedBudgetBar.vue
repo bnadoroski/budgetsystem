@@ -368,4 +368,34 @@ const darkenColor = (color: string) => {
     opacity: 0;
     transform: translateX(-50%) translateY(20px);
 }
+
+/* Dark Mode */
+body.dark-mode .budget-label {
+    color: #e2e8f0;
+}
+
+body.dark-mode .budget-value-outside {
+    color: #ccc;
+}
+
+body.dark-mode .context-header {
+    color: #fff;
+}
+
+body.dark-mode .budget-owner {
+    color: #aaa;
+}
+
+body.dark-mode .context-menu {
+    background: #1e1e2e;
+}
+
+body.dark-mode .context-btn.cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .budget-progress {
+    background-color: #2d3748;
+}
 </style>

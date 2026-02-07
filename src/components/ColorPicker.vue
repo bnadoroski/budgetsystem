@@ -68,4 +68,9 @@ const selectColor = (color: string) => {
     transform: scale(1.15);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
+
+/* Dark Mode */
+body.dark-mode .color-option.selected {
+    border-color: #fff;
+}
 </style>

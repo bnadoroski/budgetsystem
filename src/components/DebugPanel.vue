@@ -630,4 +630,73 @@ button {
 .modal-leave-to {
   opacity: 0;
 }
+
+/* Dark Mode */
+body.dark-mode .debug-panel {
+  background: #1e1e2e;
+}
+
+body.dark-mode h2 {
+  color: #fff;
+}
+
+body.dark-mode h3 {
+  color: #ccc;
+  border-bottom-color: #3a3a4e;
+}
+
+body.dark-mode .debug-section {
+  background: #2a2a3e;
+}
+
+body.dark-mode .info-row code {
+  background: #3a3a4e;
+  color: #fff;
+}
+
+body.dark-mode .test-result {
+  background: #2a2a3e;
+  border-color: #3a3a4e;
+}
+
+body.dark-mode .form-group label {
+  color: #ccc;
+}
+
+body.dark-mode .form-group input,
+body.dark-mode .form-group select {
+  background: #2a2a3e;
+  border-color: #3a3a4e;
+  color: #fff;
+}
+
+body.dark-mode .section-description {
+  color: #aaa;
+}
+
+body.dark-mode .btn-close {
+  background: #2a2a3e;
+  color: #aaa;
+}
+
+body.dark-mode .btn-close:hover {
+  background: #3a3a4e;
+}
+
+body.dark-mode .expense-item {
+  background: #2a2a3e;
+  border-color: #3a3a4e;
+}
+
+body.dark-mode .expense-header strong {
+  color: #fff;
+}
+
+body.dark-mode .expense-details {
+  color: #aaa;
+}
+
+body.dark-mode .empty-state {
+  color: #aaa;
+}
 </style>

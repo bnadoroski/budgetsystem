@@ -628,6 +628,14 @@ body.dark-mode .current-month-notice {
     color: #81c784;
 }
 
+body.dark-mode .empty-history .hint {
+    color: #aaa;
+}
+
+body.dark-mode .loading {
+    color: #aaa;
+}
+
 /* Transition */
 .modal-enter-active,
 .modal-leave-active {

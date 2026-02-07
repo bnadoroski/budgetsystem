@@ -51,6 +51,7 @@ export const useBudgetStore = defineStore('budget', () => {
     const currency = ref<string>('BRL')
     const darkMode = ref<boolean>(false)
     const resetDay = ref<number>(5) // Dia do mês para reset (padrão: dia 5)
+    const lastResetDate = ref<string | null>(null) // Data do último reset (YYYY-MM-DD)
     const newlySharedBudgetIds = ref<Set<string>>(new Set()) // IDs de budgets recém-compartilhados para efeito visual
     let unsubscribe: Unsubscribe | null = null
     let groupsUnsubscribe: Unsubscribe | null = null
@@ -471,6 +472,10 @@ export const useBudgetStore = defineStore('budget', () => {
                 if (settingsData.resetDay !== undefined) {
                     resetDay.value = settingsData.resetDay
                 }
+                if (settingsData.lastResetDate) {
+                    lastResetDate.value = settingsData.lastResetDate
+                    localStorage.setItem('lastResetDate', settingsData.lastResetDate)
+                }
             }
         } catch (error) {
             console.error('Erro ao carregar configurações do usuário:', error)
@@ -501,6 +506,7 @@ export const useBudgetStore = defineStore('budget', () => {
                 currency: currency.value,
                 darkMode: darkMode.value,
                 resetDay: resetDay.value,
+                lastResetDate: lastResetDate.value,
                 updatedAt: new Date().toISOString()
             })
         } catch (error) {
@@ -816,39 +822,84 @@ export const useBudgetStore = defineStore('budget', () => {
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     }
 
+    // Calcula a data de reset esperada para o ciclo atual
+    // Se hoje >= resetDay, o reset esperado é neste mês
+    // Se hoje < resetDay, o reset esperado era no mês passado
+    const getExpectedResetDate = (now: Date): Date => {
+        const currentDay = now.getDate()
+        if (currentDay >= resetDay.value) {
+            return new Date(now.getFullYear(), now.getMonth(), resetDay.value)
+        } else {
+            return new Date(now.getFullYear(), now.getMonth() - 1, resetDay.value)
+        }
+    }
+
+    // Calcula o mês que está sendo fechado pelo reset
+    // Ex: reset dia 5 de Fev fecha o ciclo de Janeiro
+    const getClosingMonth = (resetDate: Date): string => {
+        const closingDate = new Date(resetDate.getFullYear(), resetDate.getMonth() - 1, 1)
+        return `${closingDate.getFullYear()}-${String(closingDate.getMonth() + 1).padStart(2, '0')}`
+    }
+
     // Verifica se deve fazer reset baseado no dia configurado
+    // Funciona mesmo se o app não foi aberto no dia exato do reset
     const checkAndResetBudgets = async () => {
         const authStore = useAuthStore()
         if (!authStore.userId) return
 
         const now = new Date()
-        const currentDay = now.getDate()
-        const currentMonth = getCurrentMonth()
+        const todayStr = now.toISOString().slice(0, 10) // YYYY-MM-DD
 
-        // Verifica se hoje é o dia de reset
-        if (currentDay === resetDay.value) {
-            // Verifica se já resetou este mês
-            const needsReset = budgets.value.some(b => b.currentMonth !== currentMonth)
+        // Calcula quando o reset deveria ter ocorrido
+        const expectedResetDate = getExpectedResetDate(now)
+        const expectedResetStr = expectedResetDate.toISOString().slice(0, 10)
 
-            if (needsReset) {
-                await resetMonthlyBudgets()
+        // Primeiro uso — nunca resetou antes, marca como "já resetado" sem executar
+        if (!lastResetDate.value) {
+            console.log('[RESET] Primeiro uso detectado, inicializando lastResetDate:', todayStr)
+            lastResetDate.value = todayStr
+            localStorage.setItem('lastResetDate', todayStr)
+            if (authStore.userId) {
+                await saveUserSettings(authStore.userId)
             }
+            return
+        }
+
+        // Verifica se já resetou neste ciclo (lastResetDate >= data de reset esperada)
+        if (lastResetDate.value >= expectedResetStr) {
+            console.log('[RESET] Já resetado neste ciclo. Último:', lastResetDate.value, 'Esperado:', expectedResetStr)
+            return
+        }
+
+        // Reset necessário — o último reset foi antes da data esperada
+        const closingMonth = getClosingMonth(expectedResetDate)
+        console.log('[RESET] Reset necessário! Último:', lastResetDate.value, 'Esperado:', expectedResetStr, 'Fechando mês:', closingMonth)
+        await resetMonthlyBudgets(closingMonth)
+
+        // Atualiza lastResetDate
+        lastResetDate.value = todayStr
+        localStorage.setItem('lastResetDate', todayStr)
+
+        // Salva no Firebase também
+        if (authStore.userId) {
+            await saveUserSettings(authStore.userId)
         }
     }
 
     // Reseta todos os budgets e salva no histórico
-    const resetMonthlyBudgets = async () => {
+    // closingMonth: mês que está sendo fechado (ex: '2026-01')
+    const resetMonthlyBudgets = async (closingMonth?: string) => {
         const authStore = useAuthStore()
         if (!authStore.userId) return
 
         try {
             const currentMonth = getCurrentMonth()
-            const now = new Date()
+            const monthForHistory = closingMonth || currentMonth
 
             // Para cada budget, salva no histórico e reseta
             for (const budget of budgets.value) {
-                // Salvar no histórico
-                await saveToHistory(budget)
+                // Salvar no histórico com o mês correto
+                await saveToHistory(budget, monthForHistory)
 
                 // Resetar spentValue
                 await updateBudget(budget.id, {
@@ -857,14 +908,14 @@ export const useBudgetStore = defineStore('budget', () => {
                 })
             }
 
-            console.log('Budgets resetados com sucesso!')
+            console.log('Budgets resetados com sucesso! Mês fechado:', monthForHistory)
         } catch (error) {
             console.error('Erro ao resetar budgets:', error)
         }
     }
 
     // Salva um budget no histórico
-    const saveToHistory = async (budget: Budget) => {
+    const saveToHistory = async (budget: Budget, monthOverride?: string) => {
         const authStore = useAuthStore()
         if (!authStore.userId) return
 
@@ -878,7 +929,7 @@ export const useBudgetStore = defineStore('budget', () => {
                 spentValue: budget.spentValue,
                 color: budget.color,
                 groupId: budget.groupId,
-                month: budget.currentMonth || getCurrentMonth(),
+                month: monthOverride || budget.currentMonth || getCurrentMonth(),
                 closedAt: new Date()
             }
 
@@ -910,6 +961,12 @@ export const useBudgetStore = defineStore('budget', () => {
                 ...doc.data()
             } as BudgetHistory))
 
+            // Se não encontrou histórico formal, tenta construir a partir das transações
+            if (history.value.length === 0) {
+                console.log('[HISTORY] Nenhum histórico formal, tentando construir de transações para:', targetMonth)
+                history.value = await buildHistoryFromTransactions(authStore.userId, targetMonth)
+            }
+
             // Ordena localmente por closedAt em ordem decrescente
             history.value.sort((a, b) => {
                 const dateA = a.closedAt instanceof Date ? a.closedAt : new Date(a.closedAt)
@@ -920,6 +977,83 @@ export const useBudgetStore = defineStore('budget', () => {
             return history.value
         } catch (error) {
             console.error('Erro ao carregar histórico:', error)
+            return []
+        }
+    }
+
+    // Constrói histórico a partir de transações quando não existe budgetHistory formal
+    const buildHistoryFromTransactions = async (userId: string, targetMonth: string): Promise<BudgetHistory[]> => {
+        try {
+            const parts = targetMonth.split('-').map(Number)
+            const year = parts[0] ?? 0
+            const month = parts[1] ?? 1
+            const startDate = new Date(year, month - 1, 1)
+            const endDate = new Date(year, month, 0, 23, 59, 59, 999) // último dia do mês
+
+            const transactionsRef = collection(db, 'users', userId, 'transactions')
+            const txSnapshot = await getDocs(transactionsRef)
+
+            // Filtra transações do mês alvo (que não foram deletadas)
+            const monthTransactions = txSnapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter((tx: any) => {
+                    if (tx.deletedAt) return false
+                    const createdAt = tx.createdAt instanceof Date ? tx.createdAt : new Date(tx.createdAt)
+                    return createdAt >= startDate && createdAt <= endDate
+                })
+
+            if (monthTransactions.length === 0) return []
+
+            // Agrupa por budgetId
+            const budgetMap = new Map<string, { spent: number, income: number, name: string, color: string, total: number, groupId?: string }>()
+
+            for (const tx of monthTransactions as any[]) {
+                const budgetId = tx.budgetId
+                if (!budgetId) continue
+
+                if (!budgetMap.has(budgetId)) {
+                    // Tenta pegar informações do budget atual
+                    const existingBudget = budgets.value.find(b => b.id === budgetId)
+                    budgetMap.set(budgetId, {
+                        spent: 0,
+                        income: 0,
+                        name: tx.budgetName || existingBudget?.name || 'Budget Removido',
+                        color: existingBudget?.color || '#999',
+                        total: existingBudget?.totalValue || 0,
+                        groupId: existingBudget?.groupId
+                    })
+                }
+
+                const entry = budgetMap.get(budgetId)!
+                const amount = tx.amount || 0
+                if (tx.isIncome) {
+                    entry.income += amount
+                } else {
+                    entry.spent += amount
+                }
+            }
+
+            // Converte para formato BudgetHistory
+            const result: BudgetHistory[] = []
+            budgetMap.forEach((data, budgetId) => {
+                const netSpent = data.spent - data.income
+                result.push({
+                    id: `tx-${budgetId}-${targetMonth}`,
+                    budgetId,
+                    budgetName: data.name,
+                    totalValue: data.total,
+                    spentValue: Math.max(0, netSpent),
+                    color: data.color,
+                    groupId: data.groupId,
+                    month: targetMonth,
+                    closedAt: new Date()
+                })
+            })
+
+            console.log(`[HISTORY] Construído histórico de ${result.length} budgets a partir de ${monthTransactions.length} transações`)
+            return result
+        } catch (error) {
+            console.error('[HISTORY] Erro ao construir histórico de transações:', error)
             return []
         }
     }
@@ -944,6 +1078,11 @@ export const useBudgetStore = defineStore('budget', () => {
         if (stored) {
             resetDay.value = parseInt(stored)
         }
+        // Carrega lastResetDate também
+        const storedLastReset = localStorage.getItem('lastResetDate')
+        if (storedLastReset) {
+            lastResetDate.value = storedLastReset
+        }
     }
 
     // Inicializa
@@ -952,11 +1091,21 @@ export const useBudgetStore = defineStore('budget', () => {
     // Verifica reset ao carregar
     const initializeMonthlyCheck = () => {
         checkAndResetBudgets()
-        // Verifica a cada hora
-        setInterval(checkAndResetBudgets, 60 * 60 * 1000)
+        // Verifica a cada 15 minutos (melhora precisão perto da meia-noite)
+        setInterval(checkAndResetBudgets, 15 * 60 * 1000)
     }
 
     initializeMonthlyCheck()
+
+    // Re-verifica reset quando o app volta ao foreground ou quando a aba fica visível
+    if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                console.log('[RESET] App visível novamente, verificando reset...')
+                checkAndResetBudgets()
+            }
+        })
+    }
 
     // ===== PENDING EXPENSES FROM NOTIFICATIONS =====
 

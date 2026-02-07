@@ -801,4 +801,33 @@ body.dark-mode .btn-cancel {
 body.dark-mode .btn-cancel:hover {
     background: #3a3a4e;
 }
+
+body.dark-mode .form-actions {
+    background: #1e1e2e;
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .checkbox-label {
+    color: #fff;
+}
+
+body.dark-mode .checkbox-hint {
+    color: #aaa;
+}
+
+body.dark-mode .input-group label {
+    color: #aaa;
+}
+
+body.dark-mode .installment-hint {
+    color: #aaa;
+}
 </style>

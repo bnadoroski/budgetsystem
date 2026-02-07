@@ -29,7 +29,6 @@ body.dark-mode {
 
 body.dark-mode .app-container {
   background-color: #1a202c;
-  filter: brightness(0.7) contrast(1.1);
 }
 
 body.dark-mode .budget-label {

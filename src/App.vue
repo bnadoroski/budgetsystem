@@ -385,7 +385,7 @@ const aggregatedUngroupedBudgets = computed(() => {
   grouped.forEach((budgetGroup, name) => {
     // Verifica se o grupo tem budgets válidos
     if (!budgetGroup || budgetGroup.length === 0) return
-    
+
     if (budgetGroup.length === 1) {
       // Budget único, não agregado
       const budget = budgetGroup[0]
@@ -396,7 +396,7 @@ const aggregatedUngroupedBudgets = computed(() => {
       // Budgets agregados (mesmo nome)
       const validBudgets = budgetGroup.filter(b => b && b.id)
       if (validBudgets.length === 0) return
-      
+
       const totalValue = validBudgets.reduce((sum, b) => sum + (b.totalValue || 0), 0)
       const spentValue = validBudgets.reduce((sum, b) => sum + (b.spentValue || 0), 0)
       result.push({
@@ -685,6 +685,9 @@ watch(() => authStore.user, async (newUser, oldUser) => {
       await budgetStore.loadGroups(newUser.uid)
       await budgetStore.startSharedBudgetsListener(newUser.uid)
 
+      // Carrega dados de subscription/premium imediatamente após login
+      await subscriptionStore.loadSubscription()
+
       // Iniciar listener de convites (enviados e recebidos)
       if (newUser.email) {
         budgetStore.startInvitesListener(newUser.email, newUser.uid)
@@ -821,11 +824,13 @@ onMounted(async () => {
     // Registra listener do botão voltar do Android
     CapacitorApp.addListener('backButton', handleBackButton)
 
-    // Listener para quando app volta do background - atualiza lastActiveAt
+    // Listener para quando app volta do background - atualiza lastActiveAt e verifica reset
     CapacitorApp.addListener('appStateChange', async ({ isActive }) => {
       if (isActive && authStore.isAuthenticated) {
-        console.log('📱 App voltou ao primeiro plano - atualizando lastActiveAt')
+        console.log('📱 App voltou ao primeiro plano - atualizando lastActiveAt e verificando reset')
         await authStore.updateLastActive()
+        // Verifica se precisa fazer reset mensal (caso o app estivesse em background no dia do reset)
+        await budgetStore.checkAndResetBudgets()
       }
     })
 
@@ -914,11 +919,7 @@ onMounted(async () => {
         // Limpa as despesas do SharedPreferences nativo
         await NotificationPlugin.clearPendingExpenses()
         console.log('✅ Despesas pendentes processadas e limpas!')
-
-        // Mostra modal de despesas pendentes
-        setTimeout(() => {
-          openModal('pendingExpenses')
-        }, 1500)
+        // Removido: não abre modal automaticamente ao iniciar
       }
     } catch (e) {
       console.log('Carregamento de despesas pendentes não disponível (web)')
@@ -1111,10 +1112,12 @@ onUnmounted(() => {
         </div>
         <template v-for="item in aggregatedUngroupedBudgets"
           :key="item.type === 'single' ? item.budget?.id : item.aggregated?.name">
-          <BudgetBar v-if="item.type === 'single' && item.budget" :budget="item.budget" @edit="() => handleEditBudget(item.budget.id)"
-            @delete="() => handleDeleteBudget(item.budget.id)" @confirm-reset="() => handleConfirmReset(item.budget.id)"
+          <BudgetBar v-if="item.type === 'single' && item.budget" :budget="item.budget"
+            @edit="() => handleEditBudget(item.budget.id)" @delete="() => handleDeleteBudget(item.budget.id)"
+            @confirm-reset="() => handleConfirmReset(item.budget.id)"
             @view-transactions="() => handleViewTransactions(item.budget.id)" />
-          <AggregatedBudgetBar v-else-if="item.type === 'aggregated' && item.aggregated" :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)"
+          <AggregatedBudgetBar v-else-if="item.type === 'aggregated' && item.aggregated"
+            :aggregated-budget="item.aggregated" @edit="(id) => handleEditBudget(id)"
             @view-transactions="(id) => handleViewTransactions(id)" @confirm-reset="(id) => handleConfirmReset(id)" />
         </template>
       </div>
@@ -1754,6 +1757,26 @@ body.dark-mode .history-button {
 
 body.dark-mode .history-button:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+body.dark-mode .bottom-nav {
+  background-color: #2d3748;
+}
+
+body.dark-mode .nav-button {
+  color: #e2e8f0;
+}
+
+body.dark-mode .nav-button:hover {
+  color: #fff;
+}
+
+body.dark-mode .empty-state {
+  color: #ccc;
+}
+
+body.dark-mode .empty-state h3 {
+  color: #fff;
 }
 
 /* Error Notification */

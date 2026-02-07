@@ -910,6 +910,8 @@ const close = () => {
     z-index: 10;
     width: 44px;
     cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
 }
 
 .custom-checkbox {
@@ -1254,5 +1256,22 @@ body.dark-mode .custom-checkbox:hover {
 body.dark-mode .custom-checkbox.checked {
     background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
     border-color: #4CAF50;
+}
+
+body.dark-mode .modal-footer-fixed {
+    background: #1e1e2e;
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .btn-close {
+    background: #444;
+}
+
+body.dark-mode .btn-close:hover {
+    background: #555;
+}
+
+body.dark-mode .swipe-hint {
+    color: #666;
 }
 </style>

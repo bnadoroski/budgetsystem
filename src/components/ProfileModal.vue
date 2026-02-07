@@ -125,7 +125,7 @@
                             <div v-if="!hasActiveSharing && shareStatus.type !== 'waiting'" class="share-input-section">
                                 <p class="section-description">Compartilhe budgets e valor total com seu
                                     cônjuge/parceiro(a)</p>
-                                <div class="share-input-group">
+                                <div class="share-input-group mt-1">
                                     <input v-model="shareEmail" type="email" placeholder="email@exemplo.com"
                                         class="share-input" />
                                     <button class="btn-share" @click="handleShare" :disabled="!shareEmail || isSharing">
@@ -1727,5 +1727,73 @@ body.dark-mode .terms-accepted-info {
 
 body.dark-mode .terms-version {
     color: #888;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .user-email {
+    color: #fff;
+}
+
+body.dark-mode .share-email {
+    color: #fff;
+}
+
+body.dark-mode .shared-user {
+    color: #e2e8f0;
+}
+
+body.dark-mode .share-status {
+    color: #aaa;
+}
+
+body.dark-mode .invite-email {
+    color: #fff;
+}
+
+body.dark-mode .budget-name {
+    color: #fff;
+}
+
+body.dark-mode .budget-value {
+    color: #aaa;
+}
+
+body.dark-mode .btn-sync {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-sync:hover {
+    background: #3a3a4e;
+}
+
+body.dark-mode .sync-hint {
+    color: #888;
+}
+
+body.dark-mode .sync-result.success {
+    background: #1a3a2a;
+    color: #68d391;
+}
+
+body.dark-mode .sync-result.error {
+    background: #3a2020;
+    color: #ff7070;
+}
+
+body.dark-mode .days-remaining {
+    color: #aaa;
 }
 </style>

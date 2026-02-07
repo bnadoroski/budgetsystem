@@ -53,6 +53,9 @@ public final class BankIdentifier {
         BANK_PACKAGES.put("samsung.android.spay", "Samsung Pay");
         BANK_PACKAGES.put("gpay", "Google Pay");
         BANK_PACKAGES.put("google.android.apps.nbu", "Google Pay");
+        
+        // Mensageiros com pagamento
+        BANK_PACKAGES.put("whatsapp", "WhatsApp");
     }
     
     /**
@@ -92,7 +95,7 @@ public final class BankIdentifier {
         "picpay", "caixa", "bb", "bancodobrasil", "next", "neon",
         "original", "modal", "will", "mercadopago", "pagseguro",
         "sicoob", "sicredi", "safra", "btg", "ame", "paypal",
-        "99pay", "iti", "recargapay", "spay", "gpay"
+        "99pay", "iti", "recargapay", "spay", "gpay", "whatsapp"
     };
     
     /**

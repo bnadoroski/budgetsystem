@@ -1075,4 +1075,48 @@ body.dark-mode .btn-delete {
 body.dark-mode .btn-delete:hover {
     background: #4a2a2a;
 }
+
+body.dark-mode .loading {
+    color: #aaa;
+}
+
+body.dark-mode .merchant-name {
+    color: #fff;
+}
+
+body.dark-mode .detail-label {
+    color: #aaa;
+}
+
+body.dark-mode .detail-value {
+    color: #fff;
+}
+
+body.dark-mode .action-btn {
+    color: #ccc;
+}
+
+body.dark-mode .transfer-desc {
+    color: #aaa;
+}
+
+body.dark-mode .transfer-label {
+    color: #ccc;
+}
+
+body.dark-mode .budget-name {
+    color: #fff;
+}
+
+body.dark-mode .budget-value {
+    color: #ccc;
+}
+
+body.dark-mode .delete-warning {
+    color: #fff;
+}
+
+body.dark-mode .preview-label {
+    color: #ccc;
+}
 </style>

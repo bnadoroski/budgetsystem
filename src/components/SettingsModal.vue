@@ -1194,4 +1194,142 @@ input:checked+.slider:before {
 .modal-leave-to .modal-content {
     transform: scale(0.9);
 }
+
+/* Dark Mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header {
+    background: #1e1e2e;
+    border-bottom-color: #3a3a4e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .settings-section h3 {
+    color: #fff;
+}
+
+body.dark-mode .section-description {
+    color: #aaa;
+}
+
+body.dark-mode .input-group label {
+    color: #aaa;
+}
+
+body.dark-mode .input-group input,
+body.dark-mode .input-group select,
+body.dark-mode .option-select {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .input-group input::placeholder {
+    color: #666;
+}
+
+body.dark-mode .success-feedback {
+    background: #1a3a2a;
+    color: #68d391;
+}
+
+body.dark-mode .budget-item {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .budget-details strong {
+    color: #fff;
+}
+
+body.dark-mode .budget-values {
+    color: #aaa;
+}
+
+body.dark-mode .action-button {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
+
+body.dark-mode .action-button:hover {
+    background: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .edit-input {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel:hover {
+    background: #3a3a4e;
+}
+
+body.dark-mode .option-item {
+    background: #2a2a3e;
+}
+
+body.dark-mode .option-item span {
+    color: #fff;
+}
+
+body.dark-mode .reset-info {
+    background: #1a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .alert-warning {
+    background: #3d3020;
+    color: #f0c060;
+}
+
+body.dark-mode .no-budgets {
+    color: #aaa;
+}
+
+body.dark-mode .battery-status .status-text strong {
+    color: #fff;
+}
+
+body.dark-mode .battery-status .status-text span {
+    color: #aaa;
+}
+
+body.dark-mode .btn-battery-settings {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .battery-instructions {
+    background: #2a2a3e;
+}
+
+body.dark-mode .battery-instructions p {
+    color: #aaa;
+}
+
+body.dark-mode .battery-instructions p:not(:last-child) {
+    border-bottom-color: #3a3a4e;
+}
 </style>

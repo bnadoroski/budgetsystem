@@ -963,14 +963,17 @@ section h3 {
 }
 
 .invite-email {
-    font-size: 14px;
+    font-size: 12px;
     color: #333;
     font-weight: 500;
+    word-break: break-all;
 }
 
 .invite-date {
     font-size: 10px;
     color: #888;
+    margin-left: 8px;
+    flex-shrink: 0;
 }
 
 /* Modal Transitions */

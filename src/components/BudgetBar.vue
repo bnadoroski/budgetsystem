@@ -321,6 +321,16 @@ const handleDragEnd = () => {
     color: #666;
 }
 
+/* Dark Mode - Context Menu */
+body.dark-mode .context-menu {
+    background: #1e1e2e;
+}
+
+body.dark-mode .context-btn.cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
 .context-btn:active {
     transform: scale(0.98);
 }
@@ -373,5 +383,18 @@ const handleDragEnd = () => {
     50% {
         box-shadow: 0 0 0 6px rgba(76, 175, 80, 0.3), 0 0 15px rgba(76, 175, 80, 0.4);
     }
+}
+
+/* Dark Mode - Text */
+body.dark-mode .budget-label {
+    color: #e2e8f0;
+}
+
+body.dark-mode .budget-label::before {
+    color: #888;
+}
+
+body.dark-mode .budget-value-outside {
+    color: #ccc;
 }
 </style>

@@ -556,4 +556,89 @@ const getBudgetCount = (groupId: string) => {
 .modal-leave-to .modal-content {
     transform: scale(0.9);
 }
+
+/* Dark Mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header {
+    background: #1e1e2e;
+    border-bottom-color: #3a3a4e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .add-group-section h3,
+body.dark-mode .groups-list h3 {
+    color: #fff;
+}
+
+body.dark-mode .add-group-section input[type="text"],
+body.dark-mode .edit-input {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .add-group-section input[type="text"]::placeholder,
+body.dark-mode .edit-input::placeholder {
+    color: #666;
+}
+
+body.dark-mode .group-item {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .group-name {
+    color: #fff;
+}
+
+body.dark-mode .budget-count {
+    color: #aaa;
+}
+
+body.dark-mode .action-btn {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
+
+body.dark-mode .action-btn:hover {
+    background: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .no-groups {
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .btn-cancel:hover {
+    background: #3a3a4e;
+}
+
+body.dark-mode .info-box {
+    background: #1a2a3e;
+    border-color: #2a3a4e;
+}
+
+body.dark-mode .info-box p {
+    color: #7eb8da;
+}
 </style>

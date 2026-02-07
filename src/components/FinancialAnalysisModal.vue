@@ -60,14 +60,17 @@ const monthTransactions = computed(() => {
 
 // Get days with transactions
 const daysWithTransactions = computed(() => {
-    const days = new Map<number, { count: number; total: number }>()
+    const days = new Map<number, { count: number; total: number; incomeTotal: number; expenseTotal: number }>()
 
     monthTransactions.value.forEach(tx => {
         const day = new Date(tx.createdAt).getDate()
-        const existing = days.get(day) || { count: 0, total: 0 }
+        const existing = days.get(day) || { count: 0, total: 0, incomeTotal: 0, expenseTotal: 0 }
+        const isIncome = (tx as any).isIncome === true
         days.set(day, {
             count: existing.count + 1,
-            total: existing.total + tx.amount
+            total: existing.total + tx.amount,
+            incomeTotal: existing.incomeTotal + (isIncome ? tx.amount : 0),
+            expenseTotal: existing.expenseTotal + (isIncome ? 0 : tx.amount)
         })
     })
 
@@ -318,7 +321,7 @@ const allTimeRecurringExpenses = computed(() => {
         if (tx.isIncome) return
         const desc = tx.description?.toLowerCase().trim() || 'sem descrição'
         const monthKey = new Date(tx.createdAt).toISOString().slice(0, 7)
-        
+
         const existing = descriptions.get(desc) || {
             description: tx.description || 'Sem descrição',
             count: 0,
@@ -373,11 +376,25 @@ const getDayClass = (day: number | null) => {
 
     const classes: string[] = []
     const data = daysWithTransactions.value.get(day)
+    const today = new Date()
+    const isToday = isCurrentMonth.value && day === today.getDate()
 
     if (data) {
-        classes.push('has-transactions')
-        if (data.total > averageDailySpending.value * 1.5) {
-            classes.push('high-spending')
+        if (data.expenseTotal === 0 && data.incomeTotal > 0) {
+            // Dia só com recebimentos = verde
+            classes.push('has-income')
+        } else if (data.expenseTotal > 0) {
+            // Dia com gastos
+            classes.push('has-transactions')
+            if (data.expenseTotal > averageDailySpending.value * 1.5) {
+                classes.push('high-spending')
+            } else if (data.expenseTotal > averageDailySpending.value) {
+                classes.push('medium-spending')
+            }
+            // Se também teve recebimento, marca com borda verde
+            if (data.incomeTotal > 0) {
+                classes.push('mixed-income')
+            }
         }
     }
 
@@ -385,9 +402,13 @@ const getDayClass = (day: number | null) => {
         classes.push('selected')
     }
 
-    const today = new Date()
-    if (isCurrentMonth.value && day === today.getDate()) {
+    if (isToday) {
         classes.push('today')
+    }
+
+    // Dias futuros
+    if (isCurrentMonth.value && day > today.getDate()) {
+        classes.push('future')
     }
 
     return classes.join(' ')
@@ -625,7 +646,8 @@ watch(currentMonth, () => {
                                     <div class="summary-cards">
                                         <div class="summary-card">
                                             <span class="summary-label">Média mensal</span>
-                                            <span class="summary-value">{{ formatCurrency(averageMonthlySpending) }}</span>
+                                            <span class="summary-value">{{ formatCurrency(averageMonthlySpending)
+                                            }}</span>
                                         </div>
                                         <div class="summary-card">
                                             <span class="summary-label">Meses analisados</span>
@@ -646,7 +668,7 @@ watch(currentMonth, () => {
                                             </span>
                                         </div>
                                     </div>
-                                    
+
                                     <div v-if="allTimeLowestMonth" class="highlight-card success">
                                         <div class="highlight-icon">🏆</div>
                                         <div class="highlight-info">
@@ -664,13 +686,13 @@ watch(currentMonth, () => {
                                     <h4>📅 Histórico por Mês</h4>
                                     <div class="months-list">
                                         <div v-for="month in monthlyHistory" :key="month.month" class="month-card"
-                                            :class="{ 
+                                            :class="{
                                                 'highest': allTimeHighestMonth?.month === month.month,
-                                                'lowest': allTimeLowestMonth?.month === month.month 
+                                                'lowest': allTimeLowestMonth?.month === month.month
                                             }">
                                             <div class="month-header">
                                                 <span class="month-name">{{ month.monthLabel }} {{ month.year }}</span>
-                                                <span class="month-total" :class="{ 
+                                                <span class="month-total" :class="{
                                                     'above-avg': month.totalSpent > averageMonthlySpending,
                                                     'below-avg': month.totalSpent < averageMonthlySpending
                                                 }">
@@ -689,12 +711,14 @@ watch(currentMonth, () => {
                                                 </span>
                                             </div>
                                             <div v-if="month.topCategory" class="month-top-category">
-                                                <div class="category-color" :style="{ backgroundColor: month.topCategory.color }"></div>
-                                                <span>Top: {{ month.topCategory.name }} ({{ formatCurrency(month.topCategory.amount) }})</span>
+                                                <div class="category-color"
+                                                    :style="{ backgroundColor: month.topCategory.color }"></div>
+                                                <span>Top: {{ month.topCategory.name }} ({{
+                                                    formatCurrency(month.topCategory.amount) }})</span>
                                             </div>
                                             <!-- Barra de comparação -->
                                             <div class="comparison-bar">
-                                                <div class="bar-fill" :style="{ 
+                                                <div class="bar-fill" :style="{
                                                     width: `${Math.min(100, (month.totalSpent / (allTimeHighestMonth?.totalSpent || 1)) * 100)}%`,
                                                     backgroundColor: month.totalSpent > averageMonthlySpending ? '#ef5350' : '#4CAF50'
                                                 }"></div>
@@ -716,8 +740,10 @@ watch(currentMonth, () => {
                                                 </span>
                                             </div>
                                             <div class="recurring-values">
-                                                <span class="recurring-total">{{ formatCurrency(item.totalAmount) }}</span>
-                                                <span class="recurring-avg">~{{ formatCurrency(item.avgPerOccurrence) }}/vez</span>
+                                                <span class="recurring-total">{{ formatCurrency(item.totalAmount)
+                                                }}</span>
+                                                <span class="recurring-avg">~{{ formatCurrency(item.avgPerOccurrence)
+                                                }}/vez</span>
                                             </div>
                                         </div>
                                     </div>
@@ -975,16 +1001,41 @@ watch(currentMonth, () => {
     background: #f0f0f0;
 }
 
+.calendar-day .day-number {
+    color: #333;
+    font-weight: 500;
+}
+
 .calendar-day.has-transactions {
-    background: #e8f5e9;
+    background: #fff3e0;
+}
+
+.calendar-day.medium-spending {
+    background: #ffe0b2;
 }
 
 .calendar-day.high-spending {
-    background: #ffebee;
+    background: #ffccbc;
+}
+
+.calendar-day.has-income {
+    background: #e8f5e9;
+}
+
+.calendar-day.mixed-income {
+    border-left: 3px solid #4caf50;
+}
+
+.calendar-day.future {
+    opacity: 0.4;
 }
 
 .calendar-day.selected {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.calendar-day.selected .day-number {
     color: white;
 }
 
@@ -1291,6 +1342,11 @@ body.dark-mode .tab {
     color: #fff;
 }
 
+body.dark-mode .tab.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
 body.dark-mode .nav-btn:hover:not(:disabled) {
     background: #444;
 }
@@ -1300,11 +1356,11 @@ body.dark-mode .calendar-day:not(.empty):hover {
 }
 
 body.dark-mode .calendar-day.has-transactions {
-    background: #2d3b2d;
+    background: #3d3020;
 }
 
 body.dark-mode .calendar-day.high-spending {
-    background: #3d2d2d;
+    background: #4d2a2a;
 }
 
 body.dark-mode .day-details,
@@ -1329,6 +1385,53 @@ body.dark-mode .premium-gate h3 {
 body.dark-mode .premium-gate p,
 body.dark-mode .gate-features li {
     color: #aaa;
+}
+
+body.dark-mode .calendar-header,
+body.dark-mode .tx-budget,
+body.dark-mode .calendar-hint,
+body.dark-mode .stat-label,
+body.dark-mode .no-transactions,
+body.dark-mode .category-percentage,
+body.dark-mode .frequent-count {
+    color: #aaa;
+}
+
+body.dark-mode .day-number {
+    color: #ddd;
+    font-weight: 500;
+}
+
+body.dark-mode .calendar-day.has-transactions {
+    background: #3d3020;
+}
+
+body.dark-mode .calendar-day.medium-spending {
+    background: #4d3520;
+}
+
+body.dark-mode .calendar-day.high-spending {
+    background: #4d2a2a;
+}
+
+body.dark-mode .calendar-day.has-income {
+    background: #1e3d1e;
+}
+
+body.dark-mode .calendar-day.mixed-income {
+    border-left-color: #66bb6a;
+}
+
+body.dark-mode .calendar-day:not(.empty):hover {
+    background: #3a3a3a;
+}
+
+body.dark-mode .calendar-day.future {
+    opacity: 0.35;
+}
+
+body.dark-mode .month-year {
+    color: #bbb;
 }
 
 /* ========== HISTORY TAB STYLES ========== */
@@ -1586,5 +1689,33 @@ body.dark-mode .recurring-item {
 
 body.dark-mode .comparison-bar {
     background: #444;
+}
+
+body.dark-mode .recurring-frequency {
+    color: #aaa;
+}
+
+body.dark-mode .recurring-avg {
+    color: #aaa;
+}
+
+body.dark-mode .summary-card {
+    background: #2a2a2a;
+}
+
+body.dark-mode .summary-card .label {
+    color: #aaa;
+}
+
+body.dark-mode .summary-card .value {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
 }
 </style>

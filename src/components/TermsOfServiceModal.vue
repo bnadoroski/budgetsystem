@@ -532,24 +532,74 @@ const handleClose = () => {
 }
 
 /* Dark Mode */
-@media (prefers-color-scheme: dark) {
-    .close-button {
-        color: #999;
-    }
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
 
-    .close-button:hover {
-        background: rgba(255, 255, 255, 0.1);
-        color: #fff;
-    }
+body.dark-mode .modal-header {
+    border-bottom-color: #3a3a4e;
+}
 
-    .close-read-button {
-        background: #3a3a3a;
-        border-color: #555;
-        color: #fff;
-    }
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
 
-    .close-read-button:hover {
-        background: #444;
-    }
+body.dark-mode .version {
+    background: #2a2a3e;
+    color: #aaa;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+body.dark-mode .terms-container {
+    color: #ccc;
+}
+
+body.dark-mode .terms-container h3 {
+    color: #fff;
+}
+
+body.dark-mode .terms-container h4 {
+    color: #ddd;
+}
+
+body.dark-mode .updated-date {
+    color: #aaa;
+}
+
+body.dark-mode .acceptance-section {
+    background: linear-gradient(to bottom, #2a2a3e 0%, #1e1e2e 100%);
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .label-text {
+    color: #fff;
+}
+
+body.dark-mode .modal-footer {
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .reject-button {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
+
+body.dark-mode .close-read-button {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .close-read-button:hover {
+    background: #3a3a4e;
 }
 </style>

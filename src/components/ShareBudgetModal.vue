@@ -619,4 +619,102 @@ const cancelUnshare = () => {
 .modal-leave-to .modal-content {
     transform: scale(0.9);
 }
+
+/* Dark Mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode .modal-header {
+    background: #1e1e2e;
+    border-bottom-color: #3a3a4e;
+}
+
+body.dark-mode .modal-header h2 {
+    color: #fff;
+}
+
+body.dark-mode .close-button {
+    color: #aaa;
+}
+
+body.dark-mode .close-button:hover {
+    color: #fff;
+}
+
+body.dark-mode .description {
+    color: #aaa;
+}
+
+body.dark-mode .share-section h3,
+body.dark-mode .budgets-list h3,
+body.dark-mode .shared-section h3,
+body.dark-mode .pending-invites-section h3 {
+    color: #fff;
+}
+
+body.dark-mode .input-group input {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #fff;
+}
+
+body.dark-mode .input-group input::placeholder {
+    color: #666;
+}
+
+body.dark-mode .budget-item {
+    border-color: #3a3a4e;
+}
+
+body.dark-mode .budget-item:hover {
+    background: #2a2a3e;
+}
+
+body.dark-mode .budget-item.selected {
+    background: #1a2a4e;
+}
+
+body.dark-mode .budget-name {
+    color: #fff;
+}
+
+body.dark-mode .shared-item {
+    background: #2a2a3e;
+}
+
+body.dark-mode .shared-item span {
+    color: #fff;
+}
+
+body.dark-mode .unshare-button {
+    color: #aaa;
+}
+
+body.dark-mode .no-budgets {
+    color: #aaa;
+}
+
+body.dark-mode .pending-invites-section {
+    border-top-color: #3a3a4e;
+}
+
+body.dark-mode .pending-invite-item {
+    background: #3d3020;
+    border-color: #5d4020;
+}
+
+body.dark-mode .invite-email {
+    color: #fff;
+}
+
+body.dark-mode .invite-count {
+    color: #f0a050;
+}
+
+body.dark-mode .btn-select-all {
+    background: #2a2a3e;
+    border-color: #3a3a4e;
+    color: #aaa;
+}
 </style>

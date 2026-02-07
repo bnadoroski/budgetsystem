@@ -160,4 +160,21 @@ h2 {
 .modal-leave-to .modal-content {
     transform: scale(0.9) translateY(20px);
 }
+
+/* Dark Mode */
+body.dark-mode .modal-content {
+    background: #1e1e2e;
+}
+
+body.dark-mode h2 {
+    color: #fff;
+}
+
+body.dark-mode .description {
+    color: #aaa;
+}
+
+body.dark-mode .sub-description {
+    color: #888;
+}
 </style>
