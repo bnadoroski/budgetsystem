@@ -540,7 +540,7 @@ watch(currentMonth, () => {
                                             <div class="tx-color" :style="{ backgroundColor: tx.budgetColor }"></div>
                                             <div class="tx-info">
                                                 <span class="tx-description">{{ tx.description || tx.budgetName
-                                                    }}</span>
+                                                }}</span>
                                                 <span class="tx-budget">{{ tx.budgetName }}</span>
                                             </div>
                                             <span class="tx-amount">{{ formatCurrency(tx.amount) }}</span>
@@ -647,7 +647,7 @@ watch(currentMonth, () => {
                                         <div class="summary-card">
                                             <span class="summary-label">Média mensal</span>
                                             <span class="summary-value">{{ formatCurrency(averageMonthlySpending)
-                                            }}</span>
+                                                }}</span>
                                         </div>
                                         <div class="summary-card">
                                             <span class="summary-label">Meses analisados</span>
@@ -741,9 +741,9 @@ watch(currentMonth, () => {
                                             </div>
                                             <div class="recurring-values">
                                                 <span class="recurring-total">{{ formatCurrency(item.totalAmount)
-                                                }}</span>
+                                                    }}</span>
                                                 <span class="recurring-avg">~{{ formatCurrency(item.avgPerOccurrence)
-                                                }}/vez</span>
+                                                    }}/vez</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1356,11 +1356,11 @@ body.dark-mode .calendar-day:not(.empty):hover {
 }
 
 body.dark-mode .calendar-day.has-transactions {
-    background: #3d3020;
+    background: rgba(255, 152, 0, 0.2);
 }
 
 body.dark-mode .calendar-day.high-spending {
-    background: #4d2a2a;
+    background: rgba(244, 67, 54, 0.25);
 }
 
 body.dark-mode .day-details,
@@ -1403,15 +1403,15 @@ body.dark-mode .day-number {
 }
 
 body.dark-mode .calendar-day.has-transactions {
-    background: #3d3020;
+    background: rgba(255, 152, 0, 0.2);
 }
 
 body.dark-mode .calendar-day.medium-spending {
-    background: #4d3520;
+    background: rgba(255, 152, 0, 0.35);
 }
 
 body.dark-mode .calendar-day.high-spending {
-    background: #4d2a2a;
+    background: rgba(244, 67, 54, 0.25);
 }
 
 body.dark-mode .calendar-day.has-income {

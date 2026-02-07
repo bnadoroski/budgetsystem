@@ -67,6 +67,7 @@ const MODAL_PRIORITY: ModalName[] = [
     'settings',
     'groups',
     'share',
+    'analysis',
     'history',
     'pendingExpenses',
     'profile',
